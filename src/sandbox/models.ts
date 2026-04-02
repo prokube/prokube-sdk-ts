@@ -97,7 +97,7 @@ export function parseCodeResult(data: Record<string, unknown>): CodeResult {
 	return {
 		stdout: (data.stdout as string) ?? "",
 		stderr: (data.stderr as string) ?? "",
-		success: data.success as boolean,
+		success: data.success === true,
 		executionTimeMs: ((data.durationMs ?? data.execution_time_ms) as number) ?? 0,
 		errorName: data.error_name as string | undefined,
 		errorValue: data.error_value as string | undefined,
