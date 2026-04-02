@@ -30,8 +30,10 @@ export class Config {
 
 		this.apiUrl = apiUrl.replace(/\/+$/, "");
 		this.workspace = workspace;
-		this.apiKey = options.apiKey ?? process.env.PROKUBE_API_KEY;
-		this.userId = options.userId ?? process.env.PROKUBE_USER_ID ?? process.env.KF_USER;
+		this.apiKey = emptyToUndefined(options.apiKey ?? process.env.PROKUBE_API_KEY);
+		this.userId = emptyToUndefined(
+			options.userId ?? process.env.PROKUBE_USER_ID ?? process.env.KF_USER,
+		);
 
 		const rawTimeout = options.timeout ?? parseIntSafe(process.env.PROKUBE_TIMEOUT);
 		this.timeout = rawTimeout ?? 300;
@@ -40,6 +42,10 @@ export class Config {
 	get useApiKey(): boolean {
 		return this.apiKey != null;
 	}
+}
+
+function emptyToUndefined(value: string | undefined): string | undefined {
+	return value ? value : undefined;
 }
 
 function parseIntSafe(value: string | undefined): number | undefined {
