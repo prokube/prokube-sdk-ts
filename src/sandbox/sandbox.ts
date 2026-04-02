@@ -220,7 +220,9 @@ export class Sandbox {
 				throw new SandboxError(`Sandbox '${this._name}' entered terminal state: ${this._status}`);
 			}
 
-			await sleep(pollIntervalMs);
+			const remainingMs = deadline - Date.now();
+			if (remainingMs <= 0) break;
+			await sleep(Math.min(pollIntervalMs, remainingMs));
 		}
 
 		throw new SandboxTimeoutError(
@@ -268,7 +270,7 @@ export class Sandbox {
 }
 
 function randomHex(length: number): string {
-	const bytes = new Uint8Array(length);
+	const bytes = new Uint8Array(Math.ceil(length / 2));
 	crypto.getRandomValues(bytes);
 	return Array.from(bytes, (b) => b.toString(16).padStart(2, "0"))
 		.join("")
