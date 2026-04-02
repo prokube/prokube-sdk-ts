@@ -79,8 +79,12 @@ export function parseStatus(value: string | undefined): SandboxStatus {
 }
 
 export function parseSandboxInfo(data: Record<string, unknown>, workspace: string): SandboxInfo {
+	const name = (data.sandboxName ?? data.name) as string | undefined;
+	if (!name) {
+		throw new Error("Invalid API response: sandbox name is missing");
+	}
 	return {
-		name: (data.sandboxName ?? data.name) as string,
+		name,
 		workspace,
 		status: parseStatus((data.status ?? data.phase) as string | undefined),
 		image: data.image as string | undefined,
