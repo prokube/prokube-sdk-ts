@@ -128,5 +128,5 @@ export function commandSuccess(result: CommandResult): boolean {
 
 /** Convenience: combined stdout + stderr. */
 export function combinedOutput(result: CodeResult | CommandResult): string {
-	return (result.stdout + result.stderr).trim();
+	return result.stdout + result.stderr;
 }

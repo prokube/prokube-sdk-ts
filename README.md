@@ -150,7 +150,7 @@ class Sandbox {
   static create(image: string, options?: SandboxOptions & { name?: string }): Promise<Sandbox>;
   static get(name: string, options?: ConfigOptions): Promise<Sandbox>;
   static connect: typeof Sandbox.get;  // Alias
-  static list(options?: ConfigOptions & { phase?: string }): Promise<Sandbox[]>;
+  static list(options?: ConfigOptions & { phase?: SandboxStatus }): Promise<Sandbox[]>;
 
   runCode(code: string, language?: string, timeout?: number): Promise<CodeResult>;
   resetSession(): void;
