@@ -132,7 +132,7 @@ const sbx = await Sandbox.fromPool("python-pool", {
 ```
 
 When using an API key, the SDK automatically routes requests to the external
-API endpoints and skips the internal version compatibility check.
+API endpoints.
 
 ## API Reference
 
@@ -248,7 +248,7 @@ npm run build
 
 ## Requirements
 
-- Node.js >= 18.0.0 (uses native `fetch`)
+- Node.js >= 20.19.0 (uses native `fetch`)
 - TypeScript >= 5.7
 
 ## License
