@@ -4,7 +4,7 @@ import { SandboxClient } from "./client.js";
 import { CodeRunner } from "./code.js";
 import { CommandRunner } from "./commands.js";
 import { FileManager } from "./files.js";
-import { type CodeResult, SandboxStatus, parseStatus } from "./models.js";
+import { type CodeResult, SandboxStatus } from "./models.js";
 
 export interface SandboxOptions extends ConfigOptions {
 	volumeSize?: string;
@@ -22,11 +22,14 @@ export class Sandbox {
 	private _pool: string | undefined;
 	private _killed = false;
 
+	private readonly _timeout: number;
+
 	private constructor(
 		name: string,
 		workspace: string,
 		client: SandboxClient,
 		status: SandboxStatus,
+		timeout: number,
 		image?: string,
 		pool?: string,
 	) {
@@ -34,6 +37,7 @@ export class Sandbox {
 		this._workspace = workspace;
 		this._client = client;
 		this._status = status;
+		this._timeout = timeout;
 		this._image = image;
 		this._pool = pool;
 		this._code = new CodeRunner(client, name);
@@ -52,7 +56,15 @@ export class Sandbox {
 		const client = new SandboxClient(config);
 		try {
 			const info = await client.claimFromPool(pool, options.volumeSize);
-			return new Sandbox(info.name, config.workspace, client, info.status, info.image, pool);
+			return new Sandbox(
+				info.name,
+				config.workspace,
+				client,
+				info.status,
+				config.timeout,
+				info.image,
+				pool,
+			);
 		} catch (e) {
 			client.close();
 			throw e;
@@ -72,7 +84,7 @@ export class Sandbox {
 		try {
 			const sandboxName = options.name ?? `sandbox-${randomHex(8)}`;
 			const info = await client.create(image, sandboxName, options.volumeSize);
-			return new Sandbox(info.name, config.workspace, client, info.status, image);
+			return new Sandbox(info.name, config.workspace, client, info.status, config.timeout, image);
 		} catch (e) {
 			client.close();
 			throw e;
@@ -87,7 +99,15 @@ export class Sandbox {
 		const client = new SandboxClient(config);
 		try {
 			const info = await client.get(name);
-			return new Sandbox(info.name, config.workspace, client, info.status, info.image, info.pool);
+			return new Sandbox(
+				info.name,
+				config.workspace,
+				client,
+				info.status,
+				config.timeout,
+				info.image,
+				info.pool,
+			);
 		} catch (e) {
 			client.close();
 			throw e;
@@ -100,7 +120,7 @@ export class Sandbox {
 	/**
 	 * List all sandboxes in the workspace.
 	 */
-	static async list(options: ConfigOptions & { phase?: string } = {}): Promise<Sandbox[]> {
+	static async list(options: ConfigOptions & { phase?: SandboxStatus } = {}): Promise<Sandbox[]> {
 		const config = new Config(options);
 		const client = new SandboxClient(config);
 		try {
@@ -114,12 +134,14 @@ export class Sandbox {
 							config.workspace,
 							new SandboxClient(config),
 							info.status,
+							config.timeout,
 							info.image,
 							info.pool,
 						),
 				);
-		} finally {
+		} catch (e) {
 			client.close();
+			throw e;
 		}
 	}
 
@@ -160,9 +182,9 @@ export class Sandbox {
 
 	// ---- Code execution ----
 
-	async runCode(code: string, language = "python", timeout = 300): Promise<CodeResult> {
+	async runCode(code: string, language = "python", timeout?: number): Promise<CodeResult> {
 		this.checkNotKilled();
-		return this._code.run(code, language, timeout);
+		return this._code.run(code, language, timeout ?? this._timeout);
 	}
 
 	resetSession(): void {
@@ -185,8 +207,9 @@ export class Sandbox {
 		this._code.markSessionInvalid();
 	}
 
-	async waitUntilReady(timeout = 120): Promise<void> {
-		const deadline = Date.now() + timeout * 1000;
+	async waitUntilReady(timeout?: number): Promise<void> {
+		const effectiveTimeout = timeout ?? this._timeout;
+		const deadline = Date.now() + effectiveTimeout * 1000;
 		const pollIntervalMs = 2000;
 
 		while (Date.now() < deadline) {
@@ -202,7 +225,7 @@ export class Sandbox {
 		}
 
 		throw new SandboxTimeoutError(
-			`Sandbox '${this._name}' did not become ready within ${timeout}s`,
+			`Sandbox '${this._name}' did not become ready within ${effectiveTimeout}s`,
 		);
 	}
 

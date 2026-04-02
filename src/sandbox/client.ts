@@ -10,7 +10,6 @@ import {
 	parseCommandResult,
 	parseFileInfo,
 	parseSandboxInfo,
-	parseStatus,
 } from "./models.js";
 
 export class SandboxClient {
