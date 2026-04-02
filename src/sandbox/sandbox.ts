@@ -41,7 +41,7 @@ export class Sandbox {
 		this._image = image;
 		this._pool = pool;
 		this._code = new CodeRunner(client, name);
-		this._commands = new CommandRunner(client, name);
+		this._commands = new CommandRunner(client, name, timeout);
 		this._files = new FileManager(client, name);
 	}
 
@@ -139,9 +139,8 @@ export class Sandbox {
 							info.pool,
 						),
 				);
-		} catch (e) {
+		} finally {
 			client.close();
-			throw e;
 		}
 	}
 
