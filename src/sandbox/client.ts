@@ -1,5 +1,11 @@
 import type { Config } from "../common/config.js";
-import { ProKubeError, SandboxError } from "../common/errors.js";
+import {
+	NotFoundError,
+	PoolNotFoundError,
+	ProKubeError,
+	SandboxError,
+	SandboxNotFoundError,
+} from "../common/errors.js";
 import { HttpClient } from "../common/http.js";
 import {
 	type CodeResult,
@@ -44,12 +50,18 @@ export class SandboxClient {
 		const body: Record<string, unknown> = { poolName: pool };
 		if (volumeSize) body.volumeSize = volumeSize;
 
-		const data = (await this.http.post(`${this.sandboxesPath()}/claim`, body)) as Record<
-			string,
-			unknown
-		>;
-
-		return parseSandboxInfo(data, this.workspace);
+		try {
+			const data = (await this.http.post(`${this.sandboxesPath()}/claim`, body)) as Record<
+				string,
+				unknown
+			>;
+			return parseSandboxInfo(data, this.workspace);
+		} catch (e) {
+			if (e instanceof NotFoundError) {
+				throw new PoolNotFoundError(`Pool '${pool}' not found`);
+			}
+			throw e;
+		}
 	}
 
 	async create(image: string, name?: string, volumeSize?: string): Promise<SandboxInfo> {
@@ -68,8 +80,15 @@ export class SandboxClient {
 	}
 
 	async get(name: string): Promise<SandboxInfo> {
-		const data = (await this.http.get(this.sandboxPath(name))) as Record<string, unknown>;
-		return parseSandboxInfo(data, this.workspace);
+		try {
+			const data = (await this.http.get(this.sandboxPath(name))) as Record<string, unknown>;
+			return parseSandboxInfo(data, this.workspace);
+		} catch (e) {
+			if (e instanceof NotFoundError) {
+				throw new SandboxNotFoundError(`Sandbox '${name}' not found`);
+			}
+			throw e;
+		}
 	}
 
 	async delete(name: string): Promise<void> {
@@ -165,18 +184,6 @@ export class SandboxClient {
 
 		const files = (data.files ?? []) as Record<string, unknown>[];
 		return files.map(parseFileInfo);
-	}
-
-	// ---- Version ----
-
-	async checkVersion(): Promise<string | null> {
-		if (this.http.config.useApiKey) return null;
-		try {
-			const data = (await this.http.get("/api/version")) as Record<string, unknown>;
-			return (data.version as string) ?? null;
-		} catch {
-			return null;
-		}
 	}
 
 	close(): void {

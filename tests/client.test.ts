@@ -268,13 +268,4 @@ describe("SandboxClient", () => {
 			expect(files[1].isDir).toBe(true);
 		});
 	});
-
-	describe("version check", () => {
-		it("skips version check for API key auth", async () => {
-			const client = new SandboxClient(makeConfig({ apiKey: "key-123", userId: undefined }));
-			const version = await client.checkVersion();
-			expect(version).toBeNull();
-			expect(vi.mocked(fetch)).not.toHaveBeenCalled();
-		});
-	});
 });
