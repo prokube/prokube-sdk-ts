@@ -6,6 +6,7 @@ import {
 	parseCodeResult,
 	parseCommandResult,
 	parseFileInfo,
+	parsePoolInfo,
 	parseSandboxInfo,
 	parseStatus,
 } from "../src/sandbox/models.js";
@@ -163,6 +164,55 @@ describe("parseFileInfo", () => {
 		});
 		expect(info.isDir).toBe(true);
 		expect(info.size).toBe(0);
+	});
+});
+
+describe("parsePoolInfo", () => {
+	it("parses minimal pool info", () => {
+		const info = parsePoolInfo({ name: "my-pool" }, "test-ns");
+		expect(info.name).toBe("my-pool");
+		expect(info.workspace).toBe("test-ns");
+		expect(info.replicas).toBe(0);
+		expect(info.readyReplicas).toBe(0);
+	});
+
+	it("parses full pool info", () => {
+		const info = parsePoolInfo(
+			{
+				name: "gpu-pool",
+				replicas: 5,
+				readyReplicas: 3,
+				image: "python:3.10",
+				cpu: "2",
+				memory: "4Gi",
+			},
+			"my-ns",
+		);
+		expect(info.name).toBe("gpu-pool");
+		expect(info.workspace).toBe("my-ns");
+		expect(info.replicas).toBe(5);
+		expect(info.readyReplicas).toBe(3);
+		expect(info.image).toBe("python:3.10");
+		expect(info.cpu).toBe("2");
+		expect(info.memory).toBe("4Gi");
+	});
+
+	it("handles alternative field names (poolName, poolSize, ready_replicas)", () => {
+		const info = parsePoolInfo(
+			{
+				poolName: "alt-pool",
+				poolSize: 10,
+				ready_replicas: 7,
+			},
+			"ns",
+		);
+		expect(info.name).toBe("alt-pool");
+		expect(info.replicas).toBe(10);
+		expect(info.readyReplicas).toBe(7);
+	});
+
+	it("throws when name is missing", () => {
+		expect(() => parsePoolInfo({}, "ns")).toThrow("pool name is missing");
 	});
 });
 
