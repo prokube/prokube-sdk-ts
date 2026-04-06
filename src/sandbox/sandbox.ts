@@ -6,9 +6,9 @@ import { CommandRunner } from "./commands.js";
 import { FileManager } from "./files.js";
 import { type CodeResult, SandboxStatus } from "./models.js";
 
-export type SandboxOptions = ConfigOptions & {
+export interface SandboxOptions extends ConfigOptions {
 	volumeSize?: string;
-};
+}
 
 export class Sandbox {
 	private readonly _name: string;
