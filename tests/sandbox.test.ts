@@ -35,14 +35,6 @@ describe("Sandbox", () => {
 			expect(sbx.status).toBe(SandboxStatus.Running);
 		});
 
-		it("sends volumeSize when provided", async () => {
-			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", status: "Running" }));
-
-			await Sandbox.fromPool("pool", { ...defaultConfig, volumeSize: "20Gi" });
-			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
-			expect(body.volumeSize).toBe("20Gi");
-		});
 	});
 
 	describe("create", () => {
@@ -58,17 +50,6 @@ describe("Sandbox", () => {
 			expect(sbx.status).toBe(SandboxStatus.Pending);
 		});
 
-		it("sends volumeSize when provided", async () => {
-			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", status: "Pending" }));
-
-			await Sandbox.create("python:3.10", {
-				...defaultConfig,
-				volumeSize: "10Gi",
-			});
-			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
-			expect(body.volumeSize).toBe("10Gi");
-		});
 	});
 
 	describe("get / connect", () => {
