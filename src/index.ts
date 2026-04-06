@@ -1,11 +1,15 @@
 export { Sandbox, type SandboxOptions } from "./sandbox/sandbox.js";
+export { SandboxPool, type CreatePoolOptions } from "./sandbox/pool.js";
 export { SandboxClient } from "./sandbox/client.js";
+export { PoolClient } from "./sandbox/pool-client.js";
 export { CodeRunner } from "./sandbox/code.js";
 export { CommandRunner } from "./sandbox/commands.js";
 export { FileManager } from "./sandbox/files.js";
 export {
 	SandboxStatus,
 	type SandboxInfo,
+	type PoolInfo,
+	type CreatePoolRequest,
 	type CodeResult,
 	type CommandResult,
 	type FileInfo,
