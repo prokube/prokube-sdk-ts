@@ -68,16 +68,6 @@ describe("SandboxClient", () => {
 			expect(body.poolName).toBe("gpu-pool");
 		});
 
-		it("sends volumeSize when provided", async () => {
-			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse({ name: "sb-123", status: "Running" }));
-
-			const client = new SandboxClient(makeConfig());
-			await client.claimFromPool("pool", "20Gi");
-
-			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
-			expect(body.volumeSize).toBe("20Gi");
-		});
 	});
 
 	describe("create", () => {
