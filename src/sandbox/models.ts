@@ -43,6 +43,24 @@ export interface FileInfo {
 	modified?: string;
 }
 
+export interface PoolInfo {
+	name: string;
+	workspace: string;
+	replicas: number;
+	readyReplicas: number;
+	image?: string;
+	cpu?: string;
+	memory?: string;
+}
+
+export interface CreatePoolRequest {
+	name: string;
+	image: string;
+	poolSize: number;
+	cpu?: string;
+	memory?: string;
+}
+
 // ---- Internal request models ----
 
 export interface ClaimRequest {
@@ -122,6 +140,22 @@ export function parseFileInfo(data: Record<string, unknown>): FileInfo {
 		isDir: ((data.isDir ?? data.is_dir) as boolean) ?? false,
 		size: (data.size as number) ?? 0,
 		modified: data.modified as string | undefined,
+	};
+}
+
+export function parsePoolInfo(data: Record<string, unknown>, workspace: string): PoolInfo {
+	const name = (data.name ?? data.poolName) as string | undefined;
+	if (!name) {
+		throw new Error("Invalid API response: pool name is missing");
+	}
+	return {
+		name,
+		workspace,
+		replicas: (data.replicas ?? data.poolSize ?? 0) as number,
+		readyReplicas: (data.readyReplicas ?? data.ready_replicas ?? 0) as number,
+		image: data.image as string | undefined,
+		cpu: data.cpu as string | undefined,
+		memory: data.memory as string | undefined,
 	};
 }
 
