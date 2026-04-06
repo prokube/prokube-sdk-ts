@@ -20,11 +20,20 @@ function mockResponse(body: unknown, status = 200): Response {
 }
 
 describe("PoolClient", () => {
+	const originalEnv = process.env;
+
 	beforeEach(() => {
+		process.env = { ...originalEnv };
+		delete process.env.PROKUBE_API_KEY;
+		delete process.env.PROKUBE_USER_ID;
+		delete process.env.PROKUBE_API_URL;
+		delete process.env.PROKUBE_WORKSPACE;
+		delete process.env.KF_USER;
 		vi.stubGlobal("fetch", vi.fn());
 	});
 
 	afterEach(() => {
+		process.env = originalEnv;
 		vi.restoreAllMocks();
 	});
 
