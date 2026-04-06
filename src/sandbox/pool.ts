@@ -121,8 +121,11 @@ export class SandboxPool {
 	 * Delete this warm pool.
 	 */
 	async delete(): Promise<void> {
-		await this._client.delete(this._name);
-		this._client.close();
+		try {
+			await this._client.delete(this._name);
+		} finally {
+			this._client.close();
+		}
 	}
 
 	/**
