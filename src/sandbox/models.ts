@@ -148,11 +148,12 @@ export function parsePoolInfo(data: Record<string, unknown>, workspace: string):
 	if (!name) {
 		throw new Error("Invalid API response: pool name is missing");
 	}
+	const status = (data.status ?? {}) as Record<string, unknown>;
 	return {
 		name,
 		workspace,
 		replicas: (data.replicas ?? data.poolSize ?? 0) as number,
-		readyReplicas: (data.readyReplicas ?? data.ready_replicas ?? 0) as number,
+		readyReplicas: (status.warmPods ?? status.availablePods ?? data.readyReplicas ?? 0) as number,
 		image: data.image as string | undefined,
 		cpu: data.cpu as string | undefined,
 		memory: data.memory as string | undefined,
