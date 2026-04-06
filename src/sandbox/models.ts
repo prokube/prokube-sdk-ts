@@ -47,13 +47,11 @@ export interface FileInfo {
 
 export interface ClaimRequest {
 	poolName: string;
-	volumeSize?: string;
 }
 
 export interface CreateRequest {
 	image: string;
 	name?: string;
-	volumeSize?: string;
 }
 
 export interface ExecRequest {

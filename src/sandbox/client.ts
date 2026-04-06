@@ -46,9 +46,8 @@ export class SandboxClient {
 
 	// ---- Sandbox lifecycle ----
 
-	async claimFromPool(pool: string, volumeSize?: string): Promise<SandboxInfo> {
+	async claimFromPool(pool: string): Promise<SandboxInfo> {
 		const body: Record<string, unknown> = { poolName: pool };
-		if (volumeSize) body.volumeSize = volumeSize;
 
 		try {
 			const data = (await this.http.post(`${this.sandboxesPath()}/claim`, body)) as Record<
@@ -64,10 +63,9 @@ export class SandboxClient {
 		}
 	}
 
-	async create(image: string, name?: string, volumeSize?: string): Promise<SandboxInfo> {
+	async create(image: string, name?: string): Promise<SandboxInfo> {
 		const body: Record<string, unknown> = { image };
 		if (name) body.name = name;
-		if (volumeSize) body.volumeSize = volumeSize;
 
 		const data = (await this.http.post(this.sandboxesPath(), body)) as Record<string, unknown>;
 		return parseSandboxInfo(data, this.workspace);

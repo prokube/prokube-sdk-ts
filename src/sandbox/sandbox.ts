@@ -6,9 +6,7 @@ import { CommandRunner } from "./commands.js";
 import { FileManager } from "./files.js";
 import { type CodeResult, SandboxStatus } from "./models.js";
 
-export interface SandboxOptions extends ConfigOptions {
-	volumeSize?: string;
-}
+export interface SandboxOptions extends ConfigOptions {}
 
 export class Sandbox {
 	private readonly _name: string;
@@ -55,7 +53,7 @@ export class Sandbox {
 		const config = new Config(options);
 		const client = new SandboxClient(config);
 		try {
-			const info = await client.claimFromPool(pool, options.volumeSize);
+			const info = await client.claimFromPool(pool);
 			return new Sandbox(
 				info.name,
 				config.workspace,
@@ -83,7 +81,7 @@ export class Sandbox {
 		const client = new SandboxClient(config);
 		try {
 			const sandboxName = options.name ?? `sandbox-${randomHex(8)}`;
-			const info = await client.create(image, sandboxName, options.volumeSize);
+			const info = await client.create(image, sandboxName);
 			return new Sandbox(info.name, config.workspace, client, info.status, config.timeout, image);
 		} catch (e) {
 			client.close();
