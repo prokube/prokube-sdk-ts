@@ -6,11 +6,31 @@ This guide walks through the typical workflow for using prokube.ai sandboxes wit
 
 - A prokube.ai cluster with sandbox support enabled
 - An API key (create one in the UI under **Settings → API Keys**)
+- Node.js >= 20.19
+
+### Project Setup
+
+```bash
+mkdir my-sandbox-project && cd my-sandbox-project
+npm init -y
+npm pkg set type=module
+npm install prokube
+```
+
+### Environment Variables
 
 ```bash
 export PROKUBE_API_URL=https://your-cluster.prokube.cloud/pkui
 export PROKUBE_WORKSPACE=your-namespace
 export PROKUBE_API_KEY=pk_live_...
+```
+
+### Running Examples
+
+Save any code block from this guide as a `.ts` file and run it with:
+
+```bash
+npx tsx my-script.ts
 ```
 
 ## 1. Create a Warm Pool
@@ -54,11 +74,9 @@ const sbx = await Sandbox.fromPool("my-pool");
 The sandbox runs a stateful Jupyter kernel. Variables, imports, and functions persist across calls:
 
 ```typescript
-await sbx.runCode("import pandas as pd");
-await sbx.runCode("df = pd.DataFrame({'x': [1, 2, 3], 'y': [4, 5, 6]})");
-
-const result = await sbx.runCode("print(df.describe())");
-console.log(result.stdout);
+await sbx.runCode("x = 42");
+const result = await sbx.runCode("print(x * 2)");
+console.log(result.stdout);         // "84\n"
 console.log(result.success);        // true
 console.log(result.executionTimeMs); // e.g. 45
 ```
@@ -88,39 +106,56 @@ sbx.resetSession();
 
 ## 4. Run Shell Commands
 
-```typescript
-// Install packages
-await sbx.commands.run("pip install scikit-learn");
+Run any shell command inside the sandbox:
 
-// Run scripts
-const result = await sbx.commands.run("python3 train.py --epochs 10");
+```typescript
+const result = await sbx.commands.run("echo hello && ls /workspace");
 console.log(result.stdout);
 console.log(result.exitCode); // 0 = success
+
+// Python one-liners
+const py = await sbx.commands.run("python3 -c 'print(2 + 2)'");
+console.log(py.stdout); // "4\n"
+
+// Check for failure
+const fail = await sbx.commands.run("false");
+console.log(fail.exitCode); // 1
 ```
+
+> **Note:** Sandboxes have no internet access by default. To install packages
+> with `pip install`, enable internet access when creating the pool in the UI.
+> Pre-installed packages (Python 3.12, Node.js 22, git, curl, jq) are always
+> available.
 
 ## 5. Work with Files
 
 ```typescript
-// Upload data
-await sbx.files.write("/workspace/data.csv", "name,score\nAlice,95\nBob,87");
-
-// Process it with code
-await sbx.runCode(`
-import pandas as pd
-df = pd.read_csv('/workspace/data.csv')
-df.to_json('/workspace/results.json', orient='records')
-`);
-
-// Download results
-const output = await sbx.files.read("/workspace/results.json");
-console.log(new TextDecoder().decode(output));
+// Write a file and read it back via the SDK
+await sbx.files.write("/workspace/hello.txt", "hello world");
+const content = await sbx.files.read("/workspace/hello.txt");
+console.log(new TextDecoder().decode(content)); // "hello world"
 
 // List files
 const files = await sbx.files.list("/workspace");
 for (const f of files) {
-  console.log(`${f.name} — ${f.size} bytes`);
+  console.log(`${f.name} (${f.size} bytes)`);
 }
+
+// To create files that code can read, use commands.run or runCode:
+await sbx.commands.run("echo 'name,score' > /workspace/data.csv");
+await sbx.commands.run("echo 'Alice,95' >> /workspace/data.csv");
+await sbx.commands.run("echo 'Bob,87' >> /workspace/data.csv");
+
+await sbx.runCode(`
+with open('/workspace/data.csv') as f:
+    for line in f:
+        print(line.strip())
+`);
 ```
+
+> **Note:** Files written via `files.write()` can be read back with `files.read()`,
+> but they are stored in an internal format. If you need to read a file from within
+> `runCode()` or shell commands, create it via `commands.run()` or `runCode()` instead.
 
 ## 6. Pause & Resume
 
@@ -187,7 +222,7 @@ await pool.delete();
 
 ## Full Example
 
-Putting it all together — a script that claims a sandbox, processes data, and cleans up:
+Putting it all together — a script that claims a sandbox, uploads data, processes it, pauses, resumes, and verifies persistence:
 
 ```typescript
 import { Sandbox } from "prokube";
@@ -195,37 +230,42 @@ import { Sandbox } from "prokube";
 const sbx = await Sandbox.fromPool("my-pool");
 
 try {
-  // Upload dataset
-  await sbx.files.write("/workspace/input.csv", csvData);
-
-  // Install dependencies and run analysis
-  await sbx.commands.run("pip install scikit-learn");
-  
-  const result = await sbx.runCode(`
-import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-
-df = pd.read_csv('/workspace/input.csv')
-X, y = df.drop('target', axis=1), df['target']
-
-model = RandomForestClassifier(n_estimators=100)
-model.fit(X, y)
-print(f"Accuracy: {model.score(X, y):.2%}")
+  // Create data via code
+  await sbx.runCode(`
+with open('/workspace/data.csv', 'w') as f:
+    f.write('name,score\\nAlice,95\\nBob,87\\nCharlie,92')
   `);
-  
-  console.log(result.stdout); // "Accuracy: 97.33%"
 
-  // Pause to save costs, resume later
+  // Process it
+  const result = await sbx.runCode(`
+data = []
+with open('/workspace/data.csv') as f:
+    headers = f.readline().strip().split(',')
+    for line in f:
+        values = line.strip().split(',')
+        data.append(dict(zip(headers, values)))
+
+avg = sum(int(r['score']) for r in data) / len(data)
+print(f"Average score: {avg:.1f}")
+print(f"Students: {len(data)}")
+  `);
+
+  console.log(result.stdout);
+  // "Average score: 91.3"
+  // "Students: 3"
+
+  // Pause to save costs
   await sbx.pause();
-  
-  // ... hours later ...
-  
+  console.log("Paused — no compute costs");
+
+  // Resume later
   await sbx.resume();
   await sbx.waitUntilReady();
-  
-  // Data is still there
-  const files = await sbx.files.list("/workspace");
-  console.log(files.map(f => f.name)); // ["input.csv"]
+  console.log("Resumed");
+
+  // Verify data survived
+  const check = await sbx.commands.run("cat /workspace/data.csv");
+  console.log(check.stdout);
 
 } finally {
   await sbx.kill();
