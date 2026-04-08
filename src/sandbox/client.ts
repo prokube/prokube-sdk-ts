@@ -19,6 +19,10 @@ import {
 	parseSandboxInfo,
 } from "./models.js";
 
+/**
+ * Parameters for {@link SandboxClient.create}. Optional fields are omitted
+ * from the outgoing request body when not set.
+ */
 export interface SandboxCreateParams {
 	image: string;
 	name?: string;

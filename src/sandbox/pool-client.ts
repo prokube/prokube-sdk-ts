@@ -3,6 +3,10 @@ import { NotFoundError, PoolNotFoundError } from "../common/errors.js";
 import { HttpClient } from "../common/http.js";
 import { type EnvVar, type PoolInfo, parsePoolInfo } from "./models.js";
 
+/**
+ * Parameters for {@link PoolClient.create}. Optional fields are omitted from
+ * the outgoing request body when not set.
+ */
 export interface PoolCreateParams {
 	name: string;
 	image: string;

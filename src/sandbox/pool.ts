@@ -1,17 +1,25 @@
 import { Config, type ConfigOptions } from "../common/config.js";
-import type { EnvVar, PoolInfo } from "./models.js";
+import type { EnvVar, PoolInfo, ResourceRequests } from "./models.js";
 import { PoolClient } from "./pool-client.js";
 
+/**
+ * Options for {@link SandboxPool.create}. New fields are optional; omitted
+ * fields are not sent to the backend.
+ */
 export interface CreatePoolOptions extends ConfigOptions {
+	/** Pool name (required). */
 	name: string;
+	/** Container image used for each pool member. */
 	image: string;
+	/** Number of warm pods to maintain. */
 	poolSize: number;
-	resources?: {
-		cpu?: string;
-		memory?: string;
-	};
+	/** CPU / memory resource requests (e.g. `{ cpu: "2", memory: "4Gi" }`). */
+	resources?: ResourceRequests;
+	/** If set, whether pool members may reach the public internet. */
 	allowInternetAccess?: boolean;
+	/** Environment variables to inject into each pool member. */
 	envVars?: EnvVar[];
+	/** Names of Kubernetes secrets to mount/reference in each pool member. */
 	secretRefs?: string[];
 }
 
