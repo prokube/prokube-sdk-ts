@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Config, type ConfigOptions } from "../common/config.js";
 import { SandboxError, SandboxTimeoutError } from "../common/errors.js";
 import { SandboxClient } from "./client.js";
@@ -237,7 +238,10 @@ export class Sandbox {
 		while (Date.now() < deadline) {
 			await this.refresh();
 
-			if (this._status === SandboxStatus.Running) return;
+			if (this._status === SandboxStatus.Running) {
+				await this.warmupKernel(deadline);
+				return;
+			}
 
 			if (this._status === SandboxStatus.Failed || this._status === SandboxStatus.Succeeded) {
 				throw new SandboxError(`Sandbox '${this._name}' entered terminal state: ${this._status}`);
@@ -250,6 +254,58 @@ export class Sandbox {
 
 		throw new SandboxTimeoutError(
 			`Sandbox '${this._name}' did not become ready within ${effectiveTimeout}s`,
+		);
+	}
+
+	/**
+	 * Warm up the Jupyter kernel by running a marker print until it is
+	 * observable in stdout. Jupyter's ipykernel takes ~1.7s after pod start
+	 * before its first `execute_request` produces visible iopub stdout.
+	 * Without this, the first user `runCode` call after `waitUntilReady`
+	 * can return `success=true` with empty stdout.
+	 *
+	 * Bounded by `deadline`. Never throws on deadline exceeded — logs a
+	 * warning and returns. Propagates any error thrown by `runCode`.
+	 */
+	private async warmupKernel(deadline: number): Promise<void> {
+		this.checkNotKilled();
+		const marker = `__pk_warmup_${randomUUID().replace(/-/g, "")}__`;
+		const probeCode = `print("${marker}")`;
+		const probeIntervalMs = 500;
+		// runCode expects a positive integer second timeout. We can't probe
+		// with a sub-second budget without potentially overrunning the
+		// deadline, so once less than 1s remains we give up rather than
+		// rounding up.
+		const minProbeBudgetMs = 1000;
+		// Cap the per-probe backend timeout so a single warmup attempt
+		// cannot consume the entire waitUntilReady budget. Without this
+		// cap, the first probe call against an unresponsive kernel could
+		// block the SDK for the user's full timeout (potentially minutes)
+		// and starve the intended 500ms retry loop.
+		const maxProbeTimeoutSec = 5;
+
+		while (true) {
+			const remainingMs = deadline - Date.now();
+			if (remainingMs < minProbeBudgetMs) break;
+
+			// `probeTimeoutSec` caps the BACKEND execution time of the probe
+			// (passed through to /exec). It does NOT bound the client-side
+			// fetch() duration — HttpClient currently has no AbortSignal
+			// timeout, so a stalled TCP connection could still let a single
+			// probe overrun the overall waitUntilReady deadline. Tracked as
+			// a separate concern (HTTP-layer fetch timeout). floor() at
+			// least guarantees probeTimeoutSec * 1000 <= remainingMs.
+			const probeTimeoutSec = Math.min(maxProbeTimeoutSec, Math.floor(remainingMs / 1000));
+			const result = await this.runCode(probeCode, "python", probeTimeoutSec);
+			if (result.stdout.trim() === marker) return;
+
+			const postProbeRemainingMs = deadline - Date.now();
+			if (postProbeRemainingMs <= 0) break;
+			await sleep(Math.min(probeIntervalMs, postProbeRemainingMs));
+		}
+
+		console.warn(
+			`Sandbox '${this._name}': kernel warmup probe did not observe marker within deadline; proceeding anyway`,
 		);
 	}
 
