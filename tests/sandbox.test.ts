@@ -456,6 +456,22 @@ describe("Sandbox", () => {
 				warnSpy.mockRestore();
 			}
 		}, 10000);
+
+		it("waitUntilReady_propagates_runCode_errors_from_probe", async () => {
+			// If runCode itself throws (e.g., backend unreachable), the warmup
+			// probe must propagate the exception rather than swallow it — that
+			// is a real failure, not a cold-kernel race.
+			const mockFetch = vi.mocked(fetch);
+			// fromPool
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			// refresh: Running
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			// First probe call fails with a network error.
+			mockFetch.mockRejectedValueOnce(new Error("network unreachable"));
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			await expect(sbx.waitUntilReady(30)).rejects.toThrow(/network unreachable/);
+		});
 	});
 
 	describe("Symbol.asyncDispose", () => {
