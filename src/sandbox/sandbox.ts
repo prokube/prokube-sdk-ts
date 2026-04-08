@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Config, type ConfigOptions } from "../common/config.js";
 import { SandboxError, SandboxTimeoutError } from "../common/errors.js";
 import { SandboxClient } from "./client.js";
@@ -214,7 +215,10 @@ export class Sandbox {
 		while (Date.now() < deadline) {
 			await this.refresh();
 
-			if (this._status === SandboxStatus.Running) return;
+			if (this._status === SandboxStatus.Running) {
+				await this.warmupKernel(deadline);
+				return;
+			}
 
 			if (this._status === SandboxStatus.Failed || this._status === SandboxStatus.Succeeded) {
 				throw new SandboxError(`Sandbox '${this._name}' entered terminal state: ${this._status}`);
@@ -227,6 +231,36 @@ export class Sandbox {
 
 		throw new SandboxTimeoutError(
 			`Sandbox '${this._name}' did not become ready within ${effectiveTimeout}s`,
+		);
+	}
+
+	/**
+	 * Warm up the Jupyter kernel by running a marker print until it is
+	 * observable in stdout. Jupyter's ipykernel takes ~1.7s after pod start
+	 * before its first `execute_request` produces visible iopub stdout.
+	 * Without this, the first user `runCode` call after `waitUntilReady`
+	 * can return `success=true` with empty stdout.
+	 *
+	 * Bounded by `deadline`. Never throws on deadline exceeded — logs a
+	 * warning and returns. Propagates any error thrown by `runCode`.
+	 */
+	private async warmupKernel(deadline: number): Promise<void> {
+		this.checkNotKilled();
+		const marker = `__pk_warmup_${randomUUID().replace(/-/g, "")}__`;
+		const probeCode = `print("${marker}")`;
+		const probeIntervalMs = 500;
+
+		while (Date.now() < deadline) {
+			const result = await this.runCode(probeCode);
+			if (result.stdout.trim() === marker) return;
+
+			const remainingMs = deadline - Date.now();
+			if (remainingMs <= 0) break;
+			await sleep(Math.min(probeIntervalMs, remainingMs));
+		}
+
+		console.warn(
+			`Sandbox '${this._name}': kernel warmup probe did not observe marker within deadline; proceeding anyway`,
 		);
 	}
 

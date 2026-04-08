@@ -331,11 +331,32 @@ describe("Sandbox", () => {
 	});
 
 	describe("waitUntilReady", () => {
+		// Helper: respond to a probe call by echoing back the marker.
+		// The probe sends code like `print("__pk_warmup_<uuid>__")`.
+		// We parse the code out of the request body and return it as stdout.
+		function probeRespond(body: string): Response {
+			const parsed = JSON.parse(body);
+			const code = parsed.code as string;
+			const match = code.match(/print\("(__pk_warmup_[a-f0-9]+__)"\)/);
+			const marker = match ? match[1] : "";
+			return mockResponse({
+				stdout: `${marker}\n`,
+				stderr: "",
+				success: true,
+				durationMs: 5,
+				session_id: "sess-warm",
+			});
+		}
+
 		it("returns immediately if already running", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			// refresh call
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			// warmup probe call
+			mockFetch.mockImplementationOnce(async (_url, init) =>
+				probeRespond((init as RequestInit).body as string),
+			);
 
 			const sbx = await Sandbox.fromPool("pool", defaultConfig);
 			await sbx.waitUntilReady(5);
@@ -352,6 +373,86 @@ describe("Sandbox", () => {
 			});
 			await expect(sbx.waitUntilReady(5)).rejects.toThrow(SandboxError);
 		});
+
+		it("waitUntilReady_warms_kernel_on_cold_start", async () => {
+			const mockFetch = vi.mocked(fetch);
+			// create (Pending)
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Pending" }));
+			// first refresh: still Pending
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Pending" }));
+			// second refresh: Running
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			// first probe: empty stdout (kernel cold)
+			mockFetch.mockResolvedValueOnce(
+				mockResponse({
+					stdout: "",
+					stderr: "",
+					success: true,
+					durationMs: 5,
+					session_id: "sess-warm",
+				}),
+			);
+			// second probe: marker echoed back
+			mockFetch.mockImplementationOnce(async (_url, init) =>
+				probeRespond((init as RequestInit).body as string),
+			);
+
+			const sbx = await Sandbox.create("img", { ...defaultConfig, name: "sb-1" });
+			await sbx.waitUntilReady(30);
+
+			// Count code execution calls (probes). Exec calls are POST to /exec.
+			const execCalls = mockFetch.mock.calls.filter((c) => {
+				const url = c[0] as string;
+				return url.includes("/exec");
+			});
+			expect(execCalls.length).toBeGreaterThanOrEqual(2);
+		});
+
+		it("waitUntilReady_warm_kernel_no_extra_latency", async () => {
+			const mockFetch = vi.mocked(fetch);
+			// fromPool
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			// refresh: Running
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			// single probe returning marker
+			mockFetch.mockImplementationOnce(async (_url, init) =>
+				probeRespond((init as RequestInit).body as string),
+			);
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			await sbx.waitUntilReady(30);
+
+			const execCalls = mockFetch.mock.calls.filter((c) => {
+				const url = c[0] as string;
+				return url.includes("/exec");
+			});
+			expect(execCalls.length).toBe(1);
+		});
+
+		it("waitUntilReady_warmup_timeout_does_not_throw", async () => {
+			const mockFetch = vi.mocked(fetch);
+			// fromPool
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			// refresh: Running
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			// all subsequent calls return empty stdout (probe never sees marker).
+			// Use mockImplementation so each call gets a fresh Response object.
+			mockFetch.mockImplementation(async () =>
+				mockResponse({
+					stdout: "",
+					stderr: "",
+					success: true,
+					durationMs: 5,
+					session_id: "sess-warm",
+				}),
+			);
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			// Silence the expected warning from the unresolved probe.
+			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+			await expect(sbx.waitUntilReady(2)).resolves.toBeUndefined();
+			warnSpy.mockRestore();
+		}, 10000);
 	});
 
 	describe("Symbol.asyncDispose", () => {
