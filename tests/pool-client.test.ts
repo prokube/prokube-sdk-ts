@@ -64,12 +64,16 @@ describe("PoolClient", () => {
 	describe("create", () => {
 		it("sends correct body", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(
-				mockResponse({ name: "my-pool", replicas: 3, readyReplicas: 0 }),
-			);
+			mockFetch.mockResolvedValue(mockResponse({ name: "my-pool", replicas: 3, readyReplicas: 0 }));
 
 			const client = new PoolClient(makeConfig());
-			const info = await client.create("my-pool", "python:3.10", 3, "2", "4Gi");
+			const info = await client.create({
+				name: "my-pool",
+				image: "python:3.10",
+				poolSize: 3,
+				cpu: "2",
+				memory: "4Gi",
+			});
 
 			expect(info.name).toBe("my-pool");
 			expect(info.replicas).toBe(3);
@@ -82,18 +86,65 @@ describe("PoolClient", () => {
 			expect(body.memory).toBe("4Gi");
 		});
 
-		it("omits optional cpu and memory when not provided", async () => {
+		it("omits optional fields when not provided", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(
-				mockResponse({ name: "my-pool", replicas: 2, readyReplicas: 0 }),
-			);
+			mockFetch.mockResolvedValue(mockResponse({ name: "my-pool", replicas: 2, readyReplicas: 0 }));
 
 			const client = new PoolClient(makeConfig());
-			await client.create("my-pool", "python:3.10", 2);
+			await client.create({
+				name: "my-pool",
+				image: "python:3.10",
+				poolSize: 2,
+			});
 
 			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
 			expect(body.cpu).toBeUndefined();
 			expect(body.memory).toBeUndefined();
+			expect(body).not.toHaveProperty("allowInternetAccess");
+			expect(body).not.toHaveProperty("envVars");
+			expect(body).not.toHaveProperty("secretRefs");
+		});
+
+		it("sends allowInternetAccess, envVars, and secretRefs when provided", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ name: "my-pool", replicas: 1, readyReplicas: 0 }));
+
+			const client = new PoolClient(makeConfig());
+			await client.create({
+				name: "my-pool",
+				image: "python:3.10",
+				poolSize: 1,
+				allowInternetAccess: true,
+				envVars: [
+					{ name: "FOO", value: "bar" },
+					{ name: "BAZ", value: "qux" },
+				],
+				secretRefs: ["my-secret", "other-secret"],
+			});
+
+			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			expect(body.allowInternetAccess).toBe(true);
+			expect(body.envVars).toEqual([
+				{ name: "FOO", value: "bar" },
+				{ name: "BAZ", value: "qux" },
+			]);
+			expect(body.secretRefs).toEqual(["my-secret", "other-secret"]);
+		});
+
+		it("sends allowInternetAccess=false explicitly", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ name: "my-pool", replicas: 1, readyReplicas: 0 }));
+
+			const client = new PoolClient(makeConfig());
+			await client.create({
+				name: "my-pool",
+				image: "python:3.10",
+				poolSize: 1,
+				allowInternetAccess: false,
+			});
+
+			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			expect(body.allowInternetAccess).toBe(false);
 		});
 	});
 

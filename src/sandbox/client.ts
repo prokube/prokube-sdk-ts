@@ -10,6 +10,7 @@ import { HttpClient } from "../common/http.js";
 import {
 	type CodeResult,
 	type CommandResult,
+	type EnvVar,
 	type FileInfo,
 	type SandboxInfo,
 	parseCodeResult,
@@ -17,6 +18,17 @@ import {
 	parseFileInfo,
 	parseSandboxInfo,
 } from "./models.js";
+
+export interface SandboxCreateParams {
+	image: string;
+	name?: string;
+	volumeSize?: string;
+	cpu?: string;
+	memory?: string;
+	allowInternetAccess?: boolean;
+	envVars?: EnvVar[];
+	secretRefs?: string[];
+}
 
 export class SandboxClient {
 	private readonly http: HttpClient;
@@ -64,10 +76,18 @@ export class SandboxClient {
 		}
 	}
 
-	async create(image: string, name?: string, volumeSize?: string): Promise<SandboxInfo> {
+	async create(params: SandboxCreateParams): Promise<SandboxInfo> {
+		const { image, name, volumeSize, cpu, memory, allowInternetAccess, envVars, secretRefs } =
+			params;
+
 		const body: Record<string, unknown> = { image };
 		if (name) body.name = name;
 		if (volumeSize) body.volumeSize = volumeSize;
+		if (cpu) body.cpu = cpu;
+		if (memory) body.memory = memory;
+		if (allowInternetAccess !== undefined) body.allowInternetAccess = allowInternetAccess;
+		if (envVars !== undefined) body.envVars = envVars;
+		if (secretRefs !== undefined) body.secretRefs = secretRefs;
 
 		const data = (await this.http.post(this.sandboxesPath(), body)) as Record<string, unknown>;
 		return parseSandboxInfo(data, this.workspace);

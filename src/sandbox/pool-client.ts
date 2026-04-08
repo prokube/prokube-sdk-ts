@@ -1,7 +1,18 @@
 import type { Config } from "../common/config.js";
 import { NotFoundError, PoolNotFoundError } from "../common/errors.js";
 import { HttpClient } from "../common/http.js";
-import { type PoolInfo, parsePoolInfo } from "./models.js";
+import { type EnvVar, type PoolInfo, parsePoolInfo } from "./models.js";
+
+export interface PoolCreateParams {
+	name: string;
+	image: string;
+	poolSize: number;
+	cpu?: string;
+	memory?: string;
+	allowInternetAccess?: boolean;
+	envVars?: EnvVar[];
+	secretRefs?: string[];
+}
 
 export class PoolClient {
 	private readonly http: HttpClient;
@@ -27,16 +38,15 @@ export class PoolClient {
 
 	// ---- Pool operations ----
 
-	async create(
-		name: string,
-		image: string,
-		poolSize: number,
-		cpu?: string,
-		memory?: string,
-	): Promise<PoolInfo> {
+	async create(params: PoolCreateParams): Promise<PoolInfo> {
+		const { name, image, poolSize, cpu, memory, allowInternetAccess, envVars, secretRefs } = params;
+
 		const body: Record<string, unknown> = { name, image, poolSize };
 		if (cpu) body.cpu = cpu;
 		if (memory) body.memory = memory;
+		if (allowInternetAccess !== undefined) body.allowInternetAccess = allowInternetAccess;
+		if (envVars !== undefined) body.envVars = envVars;
+		if (secretRefs !== undefined) body.secretRefs = secretRefs;
 
 		const data = (await this.http.post(this.poolsPath(), body)) as Record<string, unknown>;
 		return parsePoolInfo(data, this.workspace);

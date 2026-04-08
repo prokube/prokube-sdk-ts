@@ -4,10 +4,21 @@ import { SandboxClient } from "./client.js";
 import { CodeRunner } from "./code.js";
 import { CommandRunner } from "./commands.js";
 import { FileManager } from "./files.js";
-import { type CodeResult, SandboxStatus } from "./models.js";
+import { type CodeResult, type EnvVar, SandboxStatus } from "./models.js";
 
 export interface SandboxOptions extends ConfigOptions {
 	volumeSize?: string;
+}
+
+export interface SandboxCreateOptions extends SandboxOptions {
+	name?: string;
+	resources?: {
+		cpu?: string;
+		memory?: string;
+	};
+	allowInternetAccess?: boolean;
+	envVars?: EnvVar[];
+	secretRefs?: string[];
 }
 
 export class Sandbox {
@@ -75,15 +86,21 @@ export class Sandbox {
 	 * Create a new sandbox from a container image.
 	 * Cold start takes ~10-30 seconds; call `waitUntilReady()` before use.
 	 */
-	static async create(
-		image: string,
-		options: SandboxOptions & { name?: string } = {},
-	): Promise<Sandbox> {
+	static async create(image: string, options: SandboxCreateOptions = {}): Promise<Sandbox> {
 		const config = new Config(options);
 		const client = new SandboxClient(config);
 		try {
 			const sandboxName = options.name ?? `sandbox-${randomHex(8)}`;
-			const info = await client.create(image, sandboxName, options.volumeSize);
+			const info = await client.create({
+				image,
+				name: sandboxName,
+				volumeSize: options.volumeSize,
+				cpu: options.resources?.cpu,
+				memory: options.resources?.memory,
+				allowInternetAccess: options.allowInternetAccess,
+				envVars: options.envVars,
+				secretRefs: options.secretRefs,
+			});
 			return new Sandbox(info.name, config.workspace, client, info.status, config.timeout, image);
 		} catch (e) {
 			client.close();

@@ -1,5 +1,5 @@
 import { Config, type ConfigOptions } from "../common/config.js";
-import type { PoolInfo } from "./models.js";
+import type { EnvVar, PoolInfo } from "./models.js";
 import { PoolClient } from "./pool-client.js";
 
 export interface CreatePoolOptions extends ConfigOptions {
@@ -10,6 +10,9 @@ export interface CreatePoolOptions extends ConfigOptions {
 		cpu?: string;
 		memory?: string;
 	};
+	allowInternetAccess?: boolean;
+	envVars?: EnvVar[];
+	secretRefs?: string[];
 }
 
 export class SandboxPool {
@@ -42,13 +45,16 @@ export class SandboxPool {
 		const config = new Config(options);
 		const client = new PoolClient(config);
 		try {
-			const info = await client.create(
-				options.name,
-				options.image,
-				options.poolSize,
-				options.resources?.cpu,
-				options.resources?.memory,
-			);
+			const info = await client.create({
+				name: options.name,
+				image: options.image,
+				poolSize: options.poolSize,
+				cpu: options.resources?.cpu,
+				memory: options.resources?.memory,
+				allowInternetAccess: options.allowInternetAccess,
+				envVars: options.envVars,
+				secretRefs: options.secretRefs,
+			});
 			return new SandboxPool(info, client);
 		} catch (e) {
 			client.close();

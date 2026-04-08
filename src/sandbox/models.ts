@@ -53,12 +53,25 @@ export interface PoolInfo {
 	memory?: string;
 }
 
+export interface EnvVar {
+	name: string;
+	value: string;
+}
+
+export interface ResourceRequests {
+	cpu?: string;
+	memory?: string;
+}
+
 export interface CreatePoolRequest {
 	name: string;
 	image: string;
 	poolSize: number;
 	cpu?: string;
 	memory?: string;
+	allowInternetAccess?: boolean;
+	envVars?: EnvVar[];
+	secretRefs?: string[];
 }
 
 // ---- Internal request models ----
@@ -72,6 +85,11 @@ export interface CreateRequest {
 	image: string;
 	name?: string;
 	volumeSize?: string;
+	cpu?: string;
+	memory?: string;
+	allowInternetAccess?: boolean;
+	envVars?: EnvVar[];
+	secretRefs?: string[];
 }
 
 export interface ExecRequest {
