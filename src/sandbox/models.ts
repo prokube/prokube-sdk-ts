@@ -154,7 +154,11 @@ export function parsePoolInfo(data: Record<string, unknown>, workspace: string):
 		name,
 		workspace,
 		replicas: (data.replicas ?? data.poolSize ?? 0) as number,
-		readyReplicas: (status.warmPods ?? status.availablePods ?? data.readyReplicas ?? 0) as number,
+		readyReplicas: (status.warmPods ??
+			status.availablePods ??
+			data.readyReplicas ??
+			data.ready_replicas ??
+			0) as number,
 		image: data.image as string | undefined,
 		cpu: data.cpu as string | undefined,
 		memory: data.memory as string | undefined,
