@@ -57,6 +57,46 @@ describe("SandboxPool", () => {
 			expect(body.image).toBe("python:3.10");
 			expect(body.poolSize).toBe(5);
 		});
+
+		it("omits new optional fields when not provided", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse(poolData));
+
+			await SandboxPool.create({
+				...defaultConfig,
+				name: "gpu-pool",
+				image: "python:3.10",
+				poolSize: 5,
+			});
+
+			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			expect(body).not.toHaveProperty("allowInternetAccess");
+			expect(body).not.toHaveProperty("envVars");
+			expect(body).not.toHaveProperty("secretRefs");
+		});
+
+		it("forwards allowInternetAccess, envVars, and secretRefs to request body", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse(poolData));
+
+			await SandboxPool.create({
+				...defaultConfig,
+				name: "gpu-pool",
+				image: "python:3.10",
+				poolSize: 3,
+				resources: { cpu: "2", memory: "4Gi" },
+				allowInternetAccess: true,
+				envVars: [{ name: "FOO", value: "bar" }],
+				secretRefs: ["my-secret"],
+			});
+
+			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			expect(body.allowInternetAccess).toBe(true);
+			expect(body.envVars).toEqual([{ name: "FOO", value: "bar" }]);
+			expect(body.secretRefs).toEqual(["my-secret"]);
+			expect(body.cpu).toBe("2");
+			expect(body.memory).toBe("4Gi");
+		});
 	});
 
 	describe("list", () => {

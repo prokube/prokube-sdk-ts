@@ -86,7 +86,7 @@ describe("SandboxClient", () => {
 			mockFetch.mockResolvedValue(mockResponse({ name: "my-sb", status: "Pending" }));
 
 			const client = new SandboxClient(makeConfig());
-			const info = await client.create("python:3.10", "my-sb");
+			const info = await client.create({ image: "python:3.10", name: "my-sb" });
 
 			expect(info.name).toBe("my-sb");
 			expect(info.status).toBe(SandboxStatus.Pending);
@@ -94,6 +94,59 @@ describe("SandboxClient", () => {
 			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
 			expect(body.image).toBe("python:3.10");
 			expect(body.name).toBe("my-sb");
+		});
+
+		it("omits optional fields when not provided", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ name: "my-sb", status: "Pending" }));
+
+			const client = new SandboxClient(makeConfig());
+			await client.create({ image: "python:3.10" });
+
+			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			expect(body).not.toHaveProperty("volumeSize");
+			expect(body).not.toHaveProperty("cpu");
+			expect(body).not.toHaveProperty("memory");
+			expect(body).not.toHaveProperty("allowInternetAccess");
+			expect(body).not.toHaveProperty("envVars");
+			expect(body).not.toHaveProperty("secretRefs");
+		});
+
+		it("sends cpu, memory, allowInternetAccess, envVars, and secretRefs when provided", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ name: "my-sb", status: "Pending" }));
+
+			const client = new SandboxClient(makeConfig());
+			await client.create({
+				image: "python:3.10",
+				name: "my-sb",
+				cpu: "2",
+				memory: "4Gi",
+				allowInternetAccess: true,
+				envVars: [{ name: "FOO", value: "bar" }],
+				secretRefs: ["my-secret"],
+			});
+
+			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			expect(body.cpu).toBe("2");
+			expect(body.memory).toBe("4Gi");
+			expect(body.allowInternetAccess).toBe(true);
+			expect(body.envVars).toEqual([{ name: "FOO", value: "bar" }]);
+			expect(body.secretRefs).toEqual(["my-secret"]);
+		});
+
+		it("sends allowInternetAccess=false explicitly", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ name: "my-sb", status: "Pending" }));
+
+			const client = new SandboxClient(makeConfig());
+			await client.create({
+				image: "python:3.10",
+				allowInternetAccess: false,
+			});
+
+			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			expect(body.allowInternetAccess).toBe(false);
 		});
 	});
 

@@ -69,6 +69,50 @@ describe("Sandbox", () => {
 			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
 			expect(body.volumeSize).toBe("10Gi");
 		});
+
+		it("omits new optional fields when not provided", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", status: "Pending" }));
+
+			await Sandbox.create("python:3.10", {
+				...defaultConfig,
+				name: "sb-1",
+			});
+
+			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			expect(body).not.toHaveProperty("cpu");
+			expect(body).not.toHaveProperty("memory");
+			expect(body).not.toHaveProperty("allowInternetAccess");
+			expect(body).not.toHaveProperty("envVars");
+			expect(body).not.toHaveProperty("secretRefs");
+		});
+
+		it("forwards resources, allowInternetAccess, envVars, and secretRefs", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", status: "Pending" }));
+
+			await Sandbox.create("python:3.10", {
+				...defaultConfig,
+				name: "sb-1",
+				resources: { cpu: "2", memory: "4Gi" },
+				allowInternetAccess: true,
+				envVars: [
+					{ name: "FOO", value: "bar" },
+					{ name: "BAZ", value: "qux" },
+				],
+				secretRefs: ["my-secret"],
+			});
+
+			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			expect(body.cpu).toBe("2");
+			expect(body.memory).toBe("4Gi");
+			expect(body.allowInternetAccess).toBe(true);
+			expect(body.envVars).toEqual([
+				{ name: "FOO", value: "bar" },
+				{ name: "BAZ", value: "qux" },
+			]);
+			expect(body.secretRefs).toEqual(["my-secret"]);
+		});
 	});
 
 	describe("get / connect", () => {

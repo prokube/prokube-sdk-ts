@@ -1,7 +1,7 @@
 import type { Config } from "../common/config.js";
 import { NotFoundError, PoolNotFoundError } from "../common/errors.js";
 import { HttpClient } from "../common/http.js";
-import { type PoolInfo, parsePoolInfo } from "./models.js";
+import { type CreatePoolRequest, type PoolInfo, parsePoolInfo } from "./models.js";
 
 export class PoolClient {
 	private readonly http: HttpClient;
@@ -27,16 +27,20 @@ export class PoolClient {
 
 	// ---- Pool operations ----
 
-	async create(
-		name: string,
-		image: string,
-		poolSize: number,
-		cpu?: string,
-		memory?: string,
-	): Promise<PoolInfo> {
+	async create(params: CreatePoolRequest): Promise<PoolInfo> {
+		const { name, image, poolSize, cpu, memory, allowInternetAccess, envVars, secretRefs } = params;
+
+		// Use `!== undefined` for every optional field so that explicit
+		// falsy/empty values ("", "0") are forwarded to the backend (which
+		// can then validate/reject them) instead of being silently dropped
+		// by truthiness checks. Only `undefined` means "caller didn't set
+		// this — use the backend default".
 		const body: Record<string, unknown> = { name, image, poolSize };
-		if (cpu) body.cpu = cpu;
-		if (memory) body.memory = memory;
+		if (cpu !== undefined) body.cpu = cpu;
+		if (memory !== undefined) body.memory = memory;
+		if (allowInternetAccess !== undefined) body.allowInternetAccess = allowInternetAccess;
+		if (envVars !== undefined) body.envVars = envVars;
+		if (secretRefs !== undefined) body.secretRefs = secretRefs;
 
 		const data = (await this.http.post(this.poolsPath(), body)) as Record<string, unknown>;
 		return parsePoolInfo(data, this.workspace);

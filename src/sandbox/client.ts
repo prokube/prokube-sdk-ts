@@ -10,6 +10,7 @@ import { HttpClient } from "../common/http.js";
 import {
 	type CodeResult,
 	type CommandResult,
+	type CreateSandboxRequest,
 	type FileInfo,
 	type SandboxInfo,
 	parseCodeResult,
@@ -64,10 +65,23 @@ export class SandboxClient {
 		}
 	}
 
-	async create(image: string, name?: string, volumeSize?: string): Promise<SandboxInfo> {
+	async create(params: CreateSandboxRequest): Promise<SandboxInfo> {
+		const { image, name, volumeSize, cpu, memory, allowInternetAccess, envVars, secretRefs } =
+			params;
+
+		// Use `!== undefined` for every optional field so that explicit
+		// falsy/empty values ("", "0") are forwarded to the backend (which
+		// can then validate/reject them) instead of being silently dropped
+		// by truthiness checks. Only `undefined` means "caller didn't set
+		// this — use the backend default".
 		const body: Record<string, unknown> = { image };
-		if (name) body.name = name;
-		if (volumeSize) body.volumeSize = volumeSize;
+		if (name !== undefined) body.name = name;
+		if (volumeSize !== undefined) body.volumeSize = volumeSize;
+		if (cpu !== undefined) body.cpu = cpu;
+		if (memory !== undefined) body.memory = memory;
+		if (allowInternetAccess !== undefined) body.allowInternetAccess = allowInternetAccess;
+		if (envVars !== undefined) body.envVars = envVars;
+		if (secretRefs !== undefined) body.secretRefs = secretRefs;
 
 		const data = (await this.http.post(this.sandboxesPath(), body)) as Record<string, unknown>;
 		return parseSandboxInfo(data, this.workspace);
