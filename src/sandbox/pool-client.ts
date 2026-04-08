@@ -1,22 +1,7 @@
 import type { Config } from "../common/config.js";
 import { NotFoundError, PoolNotFoundError } from "../common/errors.js";
 import { HttpClient } from "../common/http.js";
-import { type EnvVar, type PoolInfo, parsePoolInfo } from "./models.js";
-
-/**
- * Parameters for {@link PoolClient.create}. Optional fields are omitted from
- * the outgoing request body when not set.
- */
-export interface PoolCreateParams {
-	name: string;
-	image: string;
-	poolSize: number;
-	cpu?: string;
-	memory?: string;
-	allowInternetAccess?: boolean;
-	envVars?: EnvVar[];
-	secretRefs?: string[];
-}
+import { type CreatePoolRequest, type PoolInfo, parsePoolInfo } from "./models.js";
 
 export class PoolClient {
 	private readonly http: HttpClient;
@@ -42,7 +27,7 @@ export class PoolClient {
 
 	// ---- Pool operations ----
 
-	async create(params: PoolCreateParams): Promise<PoolInfo> {
+	async create(params: CreatePoolRequest): Promise<PoolInfo> {
 		const { name, image, poolSize, cpu, memory, allowInternetAccess, envVars, secretRefs } = params;
 
 		const body: Record<string, unknown> = { name, image, poolSize };

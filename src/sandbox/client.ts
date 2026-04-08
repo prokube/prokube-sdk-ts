@@ -10,7 +10,7 @@ import { HttpClient } from "../common/http.js";
 import {
 	type CodeResult,
 	type CommandResult,
-	type EnvVar,
+	type CreateRequest,
 	type FileInfo,
 	type SandboxInfo,
 	parseCodeResult,
@@ -18,21 +18,6 @@ import {
 	parseFileInfo,
 	parseSandboxInfo,
 } from "./models.js";
-
-/**
- * Parameters for {@link SandboxClient.create}. Optional fields are omitted
- * from the outgoing request body when not set.
- */
-export interface SandboxCreateParams {
-	image: string;
-	name?: string;
-	volumeSize?: string;
-	cpu?: string;
-	memory?: string;
-	allowInternetAccess?: boolean;
-	envVars?: EnvVar[];
-	secretRefs?: string[];
-}
 
 export class SandboxClient {
 	private readonly http: HttpClient;
@@ -80,7 +65,7 @@ export class SandboxClient {
 		}
 	}
 
-	async create(params: SandboxCreateParams): Promise<SandboxInfo> {
+	async create(params: CreateRequest): Promise<SandboxInfo> {
 		const { image, name, volumeSize, cpu, memory, allowInternetAccess, envVars, secretRefs } =
 			params;
 
