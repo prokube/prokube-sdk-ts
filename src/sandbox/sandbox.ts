@@ -259,9 +259,13 @@ export class Sandbox {
 			const remainingMs = deadline - Date.now();
 			if (remainingMs < minProbeBudgetMs) break;
 
-			// Bound the probe HTTP call to the remaining budget so a hung
-			// /exec request cannot overrun waitUntilReady's overall timeout.
-			// floor() guarantees probeTimeoutSec * 1000 <= remainingMs.
+			// `probeTimeoutSec` caps the BACKEND execution time of the probe
+			// (passed through to /exec). It does NOT bound the client-side
+			// fetch() duration — HttpClient currently has no AbortSignal
+			// timeout, so a stalled TCP connection could still let a single
+			// probe overrun the overall waitUntilReady deadline. Tracked as
+			// a separate concern (HTTP-layer fetch timeout). floor() at
+			// least guarantees probeTimeoutSec * 1000 <= remainingMs.
 			const probeTimeoutSec = Math.floor(remainingMs / 1000);
 			const result = await this.runCode(probeCode, "python", probeTimeoutSec);
 			if (result.stdout.trim() === marker) return;
