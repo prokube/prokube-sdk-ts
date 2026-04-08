@@ -13,7 +13,7 @@ export {
 	SandboxStatus,
 	type SandboxInfo,
 	type PoolInfo,
-	type CreateRequest,
+	type CreateSandboxRequest,
 	type CreatePoolRequest,
 	type CodeResult,
 	type CommandResult,

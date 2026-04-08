@@ -74,14 +74,7 @@ export interface CreatePoolRequest {
 	secretRefs?: string[];
 }
 
-// ---- Internal request models ----
-
-export interface ClaimRequest {
-	poolName: string;
-	volumeSize?: string;
-}
-
-export interface CreateRequest {
+export interface CreateSandboxRequest {
 	image: string;
 	name?: string;
 	volumeSize?: string;
@@ -90,6 +83,13 @@ export interface CreateRequest {
 	allowInternetAccess?: boolean;
 	envVars?: EnvVar[];
 	secretRefs?: string[];
+}
+
+// ---- Internal request models ----
+
+export interface ClaimRequest {
+	poolName: string;
+	volumeSize?: string;
 }
 
 export interface ExecRequest {

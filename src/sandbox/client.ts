@@ -10,7 +10,7 @@ import { HttpClient } from "../common/http.js";
 import {
 	type CodeResult,
 	type CommandResult,
-	type CreateRequest,
+	type CreateSandboxRequest,
 	type FileInfo,
 	type SandboxInfo,
 	parseCodeResult,
@@ -65,12 +65,14 @@ export class SandboxClient {
 		}
 	}
 
-	async create(params: CreateRequest): Promise<SandboxInfo> {
+	async create(params: CreateSandboxRequest): Promise<SandboxInfo> {
 		const { image, name, volumeSize, cpu, memory, allowInternetAccess, envVars, secretRefs } =
 			params;
 
 		const body: Record<string, unknown> = { image };
-		if (name) body.name = name;
+		// Use `!== undefined` so an explicit empty string is forwarded to the
+		// backend (which can then reject it) instead of being silently dropped.
+		if (name !== undefined) body.name = name;
 		if (volumeSize) body.volumeSize = volumeSize;
 		if (cpu) body.cpu = cpu;
 		if (memory) body.memory = memory;
