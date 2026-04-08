@@ -334,13 +334,19 @@ describe("Sandbox", () => {
 		// Helper: respond to a probe call by echoing back the marker.
 		// The probe sends code like `print("__pk_warmup_<uuid>__")`.
 		// We parse the code out of the request body and return it as stdout.
+		// If the regex doesn't match we throw rather than fall back to an empty
+		// marker, which would otherwise satisfy the probe success condition
+		// (`stdout.trim() === ""`) and silently mask regressions in the probe
+		// request format.
 		function probeRespond(body: string): Response {
 			const parsed = JSON.parse(body);
 			const code = parsed.code as string;
 			const match = code.match(/print\("(__pk_warmup_[a-f0-9]+__)"\)/);
-			const marker = match ? match[1] : "";
+			if (!match) {
+				throw new Error(`Unexpected probe request body: ${body}`);
+			}
 			return mockResponse({
-				stdout: `${marker}\n`,
+				stdout: `${match[1]}\n`,
 				stderr: "",
 				success: true,
 				durationMs: 5,

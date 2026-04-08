@@ -254,6 +254,12 @@ export class Sandbox {
 		// deadline, so once less than 1s remains we give up rather than
 		// rounding up.
 		const minProbeBudgetMs = 1000;
+		// Cap the per-probe backend timeout so a single warmup attempt
+		// cannot consume the entire waitUntilReady budget. Without this
+		// cap, the first probe call against an unresponsive kernel could
+		// block the SDK for the user's full timeout (potentially minutes)
+		// and starve the intended 500ms retry loop.
+		const maxProbeTimeoutSec = 5;
 
 		while (true) {
 			const remainingMs = deadline - Date.now();
@@ -266,7 +272,7 @@ export class Sandbox {
 			// probe overrun the overall waitUntilReady deadline. Tracked as
 			// a separate concern (HTTP-layer fetch timeout). floor() at
 			// least guarantees probeTimeoutSec * 1000 <= remainingMs.
-			const probeTimeoutSec = Math.floor(remainingMs / 1000);
+			const probeTimeoutSec = Math.min(maxProbeTimeoutSec, Math.floor(remainingMs / 1000));
 			const result = await this.runCode(probeCode, "python", probeTimeoutSec);
 			if (result.stdout.trim() === marker) return;
 
