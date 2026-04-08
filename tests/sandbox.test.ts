@@ -450,8 +450,11 @@ describe("Sandbox", () => {
 			const sbx = await Sandbox.fromPool("pool", defaultConfig);
 			// Silence the expected warning from the unresolved probe.
 			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-			await expect(sbx.waitUntilReady(2)).resolves.toBeUndefined();
-			warnSpy.mockRestore();
+			try {
+				await expect(sbx.waitUntilReady(2)).resolves.toBeUndefined();
+			} finally {
+				warnSpy.mockRestore();
+			}
 		}, 10000);
 	});
 

@@ -249,14 +249,23 @@ export class Sandbox {
 		const marker = `__pk_warmup_${randomUUID().replace(/-/g, "")}__`;
 		const probeCode = `print("${marker}")`;
 		const probeIntervalMs = 500;
+		// runCode expects a positive integer second timeout. Clamp to ≥1s
+		// so a slow /exec call cannot block waitUntilReady past its budget.
+		const minProbeTimeoutSec = 1;
 
-		while (Date.now() < deadline) {
-			const result = await this.runCode(probeCode);
-			if (result.stdout.trim() === marker) return;
-
+		while (true) {
 			const remainingMs = deadline - Date.now();
 			if (remainingMs <= 0) break;
-			await sleep(Math.min(probeIntervalMs, remainingMs));
+
+			// Bound the probe HTTP call to the remaining budget so a hung
+			// /exec request cannot overrun waitUntilReady's overall timeout.
+			const probeTimeoutSec = Math.max(minProbeTimeoutSec, Math.ceil(remainingMs / 1000));
+			const result = await this.runCode(probeCode, "python", probeTimeoutSec);
+			if (result.stdout.trim() === marker) return;
+
+			const postProbeRemainingMs = deadline - Date.now();
+			if (postProbeRemainingMs <= 0) break;
+			await sleep(Math.min(probeIntervalMs, postProbeRemainingMs));
 		}
 
 		console.warn(
