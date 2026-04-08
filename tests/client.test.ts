@@ -232,6 +232,45 @@ describe("SandboxClient", () => {
 			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
 			expect(body.path).toBe("/workspace/test.txt");
 			expect(body.content).toBe(Buffer.from("hello world").toString("base64"));
+			expect(body.encoding).toBe("base64");
+		});
+
+		it("writes binary file with encoding=base64", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({}));
+
+			const client = new SandboxClient(makeConfig());
+			// Non-UTF8 bytes to ensure we're not relying on text encoding.
+			const content = new Uint8Array([0x00, 0xff, 0x10, 0x80, 0x7f]);
+			await client.writeFile("sb-1", "/workspace/bin.dat", content);
+
+			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			expect(body.encoding).toBe("base64");
+			expect(body.content).toBe(Buffer.from(content).toString("base64"));
+			// Decoding the request content should recover the original bytes.
+			const decoded = new Uint8Array(Buffer.from(body.content, "base64"));
+			expect(Array.from(decoded)).toEqual(Array.from(content));
+		});
+
+		it("roundtrips bytes through write then read", async () => {
+			const mockFetch = vi.mocked(fetch);
+			const original = new TextEncoder().encode("hello world");
+
+			// First call: writeFile POST (JSON response).
+			mockFetch.mockResolvedValueOnce(mockResponse({}));
+			// Second call: readFile returns raw bytes (post pkui#1728 backend).
+			mockFetch.mockResolvedValueOnce(new Response(original, { status: 200 }));
+
+			const client = new SandboxClient(makeConfig());
+			await client.writeFile("sb-1", "/workspace/x", original);
+
+			const writeBody = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			expect(writeBody.encoding).toBe("base64");
+			expect(writeBody.content).toBe(Buffer.from(original).toString("base64"));
+
+			const read = await client.readFile("sb-1", "/workspace/x");
+			expect(read).toBeInstanceOf(Uint8Array);
+			expect(Array.from(read)).toEqual(Array.from(original));
 		});
 
 		it("reads file from download endpoint", async () => {

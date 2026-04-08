@@ -86,6 +86,7 @@ export interface ExecRequest {
 export interface FileWriteRequest {
 	path: string;
 	content: string;
+	encoding: string;
 }
 
 // ---- Parsing helpers ----

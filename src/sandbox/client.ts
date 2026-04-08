@@ -168,6 +168,7 @@ export class SandboxClient {
 		await this.http.post(this.sandboxSubPath(name, "files"), {
 			path,
 			content: base64,
+			encoding: "base64",
 		});
 	}
 
