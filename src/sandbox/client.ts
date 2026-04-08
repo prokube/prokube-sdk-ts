@@ -69,13 +69,16 @@ export class SandboxClient {
 		const { image, name, volumeSize, cpu, memory, allowInternetAccess, envVars, secretRefs } =
 			params;
 
+		// Use `!== undefined` for every optional field so that explicit
+		// falsy/empty values ("", "0") are forwarded to the backend (which
+		// can then validate/reject them) instead of being silently dropped
+		// by truthiness checks. Only `undefined` means "caller didn't set
+		// this — use the backend default".
 		const body: Record<string, unknown> = { image };
-		// Use `!== undefined` so an explicit empty string is forwarded to the
-		// backend (which can then reject it) instead of being silently dropped.
 		if (name !== undefined) body.name = name;
-		if (volumeSize) body.volumeSize = volumeSize;
-		if (cpu) body.cpu = cpu;
-		if (memory) body.memory = memory;
+		if (volumeSize !== undefined) body.volumeSize = volumeSize;
+		if (cpu !== undefined) body.cpu = cpu;
+		if (memory !== undefined) body.memory = memory;
 		if (allowInternetAccess !== undefined) body.allowInternetAccess = allowInternetAccess;
 		if (envVars !== undefined) body.envVars = envVars;
 		if (secretRefs !== undefined) body.secretRefs = secretRefs;
