@@ -333,11 +333,12 @@ describe("Sandbox", () => {
 	describe("waitUntilReady", () => {
 		// Helper: respond to a probe call by echoing back the marker.
 		// The probe sends code like `print("__pk_warmup_<uuid>__")`.
-		// We parse the code out of the request body and return it as stdout.
+		// We parse the marker out of the request body and echo it back as
+		// stdout so the warmup loop's `stdout.trim() === marker` check passes.
 		// If the regex doesn't match we throw rather than fall back to an empty
-		// marker, which would otherwise satisfy the probe success condition
-		// (`stdout.trim() === ""`) and silently mask regressions in the probe
-		// request format.
+		// string — an empty marker would silently make the probe succeed
+		// (since both sides of `stdout.trim() === marker` would be "") and
+		// mask regressions in the probe request format.
 		function probeRespond(body: string): Response {
 			const parsed = JSON.parse(body);
 			const code = parsed.code as string;
