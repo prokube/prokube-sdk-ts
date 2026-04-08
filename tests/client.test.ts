@@ -112,7 +112,7 @@ describe("SandboxClient", () => {
 			expect(body).not.toHaveProperty("secretRefs");
 		});
 
-		it("sends resources, allowInternetAccess, envVars, and secretRefs when provided", async () => {
+		it("sends cpu, memory, allowInternetAccess, envVars, and secretRefs when provided", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValue(mockResponse({ name: "my-sb", status: "Pending" }));
 
