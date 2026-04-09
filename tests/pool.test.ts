@@ -43,6 +43,10 @@ describe("SandboxPool", () => {
 				image: "python:3.10",
 				poolSize: 5,
 				resources: { cpu: "2", memory: "4Gi" },
+				// Opt out of the post-create warmup probe for this unit
+				// test; the probe path is covered by dedicated tests
+				// below.
+				waitUntilReady: false,
 			});
 
 			expect(pool.name).toBe("gpu-pool");
@@ -67,6 +71,7 @@ describe("SandboxPool", () => {
 				name: "gpu-pool",
 				image: "python:3.10",
 				poolSize: 5,
+				waitUntilReady: false,
 			});
 
 			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
@@ -88,6 +93,7 @@ describe("SandboxPool", () => {
 				allowInternetAccess: true,
 				envVars: [{ name: "FOO", value: "bar" }],
 				secretRefs: ["my-secret"],
+				waitUntilReady: false,
 			});
 
 			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
@@ -96,6 +102,151 @@ describe("SandboxPool", () => {
 			expect(body.secretRefs).toEqual(["my-secret"]);
 			expect(body.cpu).toBe("2");
 			expect(body.memory).toBe("4Gi");
+		});
+
+		describe("warmup", () => {
+			// Helper: respond to a probe /exec call by echoing back the marker.
+			// See tests/sandbox.test.ts for the same helper used against
+			// Sandbox.waitUntilReady directly.
+			function probeRespond(body: string): Response {
+				const parsed = JSON.parse(body);
+				const code = parsed.code as string;
+				const match = code.match(/print\("(__pk_warmup_[a-f0-9]+__)"\)/);
+				if (!match) {
+					throw new Error(`Unexpected probe request body: ${body}`);
+				}
+				return mockResponse({
+					stdout: `${match[1]}\n`,
+					stderr: "",
+					success: true,
+					durationMs: 5,
+					session_id: "sess-warm",
+				});
+			}
+
+			const readyPoolData = {
+				name: "warm-pool",
+				replicas: 1,
+				readyReplicas: 1,
+				image: "python:3.10",
+				cpu: "1",
+				memory: "1Gi",
+			};
+
+			it("warms pool pods when waitUntilReady is true (default)", async () => {
+				const mockFetch = vi.mocked(fetch);
+				// 1. POST create pool — already has ready replicas so no
+				//    refresh-poll iterations needed.
+				mockFetch.mockResolvedValueOnce(mockResponse(readyPoolData));
+				// 2. POST claim sandbox from pool.
+				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-warm", status: "Running" }));
+				// 3. GET sandbox (waitUntilReady -> refresh).
+				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-warm", status: "Running" }));
+				// 4. POST /exec — warmup probe echoing marker.
+				mockFetch.mockImplementationOnce(async (_url, init) =>
+					probeRespond((init as RequestInit).body as string),
+				);
+				// 5. DELETE sandbox (kill probe sbx).
+				mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+				const pool = await SandboxPool.create({
+					...defaultConfig,
+					name: "warm-pool",
+					image: "python:3.10",
+					poolSize: 1,
+					readyTimeout: 10,
+				});
+
+				expect(pool.name).toBe("warm-pool");
+
+				// Must have made exactly one /exec call (the warmup probe)
+				// before returning from create.
+				const execCalls = mockFetch.mock.calls.filter((c) => {
+					const url = c[0] as string;
+					return url.includes("/exec");
+				});
+				expect(execCalls.length).toBe(1);
+
+				// And must have claimed one sandbox from the pool.
+				const claimCalls = mockFetch.mock.calls.filter((c) => {
+					const url = c[0] as string;
+					return url.includes("/sandboxes/claim");
+				});
+				expect(claimCalls.length).toBe(1);
+			});
+
+			it("opts out of warmup when waitUntilReady=false", async () => {
+				const mockFetch = vi.mocked(fetch);
+				mockFetch.mockResolvedValueOnce(mockResponse(readyPoolData));
+
+				await SandboxPool.create({
+					...defaultConfig,
+					name: "warm-pool",
+					image: "python:3.10",
+					poolSize: 1,
+					waitUntilReady: false,
+				});
+
+				// No probe exec and no claim — just the one create call.
+				expect(mockFetch.mock.calls.length).toBe(1);
+				const execCalls = mockFetch.mock.calls.filter((c) => {
+					const url = c[0] as string;
+					return url.includes("/exec");
+				});
+				expect(execCalls.length).toBe(0);
+				const claimCalls = mockFetch.mock.calls.filter((c) => {
+					const url = c[0] as string;
+					return url.includes("/sandboxes/claim");
+				});
+				expect(claimCalls.length).toBe(0);
+			});
+
+			it("does not throw if warmup probe times out", async () => {
+				const mockFetch = vi.mocked(fetch);
+				// 1. POST create pool — already ready.
+				mockFetch.mockResolvedValueOnce(mockResponse(readyPoolData));
+				// 2. POST claim.
+				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-warm", status: "Running" }));
+				// 3+. Every subsequent call returns either a Running status
+				//     for GET refresh, or an empty-stdout result for /exec,
+				//     or a 204 for DELETE. The probe will never see the
+				//     marker and will time out, but the outer create must
+				//     still resolve.
+				mockFetch.mockImplementation(async (url, init) => {
+					const u = url as string;
+					const method = (init as RequestInit | undefined)?.method ?? "GET";
+					if (method === "DELETE") {
+						return new Response(null, { status: 204 });
+					}
+					if (u.includes("/exec")) {
+						return mockResponse({
+							stdout: "",
+							stderr: "",
+							success: true,
+							durationMs: 5,
+							session_id: "sess-warm",
+						});
+					}
+					return mockResponse({ name: "sb-warm", status: "Running" });
+				});
+
+				// Silence expected warnings from the unresolved probe and
+				// from the best-effort warmup wrapper.
+				const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+				try {
+					await expect(
+						SandboxPool.create({
+							...defaultConfig,
+							name: "warm-pool",
+							image: "python:3.10",
+							poolSize: 1,
+							readyTimeout: 2,
+						}),
+					).resolves.toBeDefined();
+				} finally {
+					warnSpy.mockRestore();
+				}
+			}, 10000);
 		});
 	});
 
