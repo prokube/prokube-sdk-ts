@@ -316,9 +316,7 @@ describe("SandboxPool", () => {
 				const claimCalls = mockFetch.mock.calls.filter((c) =>
 					(c[0] as string).includes("/sandboxes/claim"),
 				);
-				const execCalls = mockFetch.mock.calls.filter((c) =>
-					(c[0] as string).includes("/exec"),
-				);
+				const execCalls = mockFetch.mock.calls.filter((c) => (c[0] as string).includes("/exec"));
 				expect(claimCalls.length).toBe(0);
 				expect(execCalls.length).toBe(0);
 			}, 10000);
