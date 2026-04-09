@@ -261,6 +261,67 @@ describe("SandboxPool", () => {
 					warnSpy.mockRestore();
 				}
 			}, 10000);
+
+			it("does not throw if pool readiness never reaches the desired count", async () => {
+				// Pool is created but readyReplicas stays below replicas for the
+				// entire readyTimeout window. warmPoolPods must:
+				//   - log a warning,
+				//   - return the pool anyway (best-effort),
+				//   - NOT attempt a claim or /exec probe (the probe phase is
+				//     gated on readiness succeeding).
+				const notReadyPoolData = {
+					name: "warm-pool",
+					replicas: 1,
+					readyReplicas: 0,
+					image: "python:3.10",
+					cpu: "1",
+					memory: "1Gi",
+				};
+
+				const mockFetch = vi.mocked(fetch);
+				// 1. POST create pool — desired=1, ready=0.
+				mockFetch.mockResolvedValueOnce(mockResponse(notReadyPoolData));
+				// 2+. Every refresh keeps the pool below desired so the
+				//     readiness loop eventually trips its readyTimeout.
+				//     Any other call (claim, /exec) would mean the probe
+				//     phase ran — which is what this test asserts must NOT
+				//     happen.
+				mockFetch.mockImplementation(async (url, init) => {
+					const u = url as string;
+					const method = (init as RequestInit | undefined)?.method ?? "GET";
+					if (u.includes("/sandbox-pools")) {
+						return mockResponse(notReadyPoolData);
+					}
+					throw new Error(
+						`unexpected ${method} ${u} — readiness never succeeded so no claim/probe should run`,
+					);
+				});
+
+				const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+				try {
+					await expect(
+						SandboxPool.create({
+							...defaultConfig,
+							name: "warm-pool",
+							image: "python:3.10",
+							poolSize: 1,
+							readyTimeout: 1,
+						}),
+					).resolves.toBeDefined();
+				} finally {
+					warnSpy.mockRestore();
+				}
+
+				// Must not have made a claim or /exec call.
+				const claimCalls = mockFetch.mock.calls.filter((c) =>
+					(c[0] as string).includes("/sandboxes/claim"),
+				);
+				const execCalls = mockFetch.mock.calls.filter((c) =>
+					(c[0] as string).includes("/exec"),
+				);
+				expect(claimCalls.length).toBe(0);
+				expect(execCalls.length).toBe(0);
+			}, 10000);
 		});
 	});
 

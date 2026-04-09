@@ -126,8 +126,10 @@ export class SandboxPool {
 		} catch (e) {
 			// Best-effort warmup: never block pool handoff on probe errors.
 			// Real pool-creation errors already propagated above.
+			// Use the backend-reported pool.name (not options.name) so the
+			// log points at the actual pool the backend created.
 			console.warn(
-				`SandboxPool '${options.name}': warmup failed (${
+				`SandboxPool '${pool.name}': warmup failed (${
 					e instanceof Error ? e.message : String(e)
 				}); returning pool anyway`,
 			);
