@@ -317,12 +317,14 @@ export class Sandbox {
 			this._status = SandboxStatus.Succeeded;
 			this._killed = true;
 		} finally {
-			// Always close the underlying HTTP client, even when delete
-			// fails. Otherwise a network error during kill would leak the
-			// connection in long-lived processes (e.g. SandboxPool's
-			// best-effort warmup probe). The status/killed state is only
-			// updated on a successful delete so callers can still retry
-			// kill() to surface the error.
+			// Always close the underlying HTTP client in a finally block,
+			// even when delete fails. HttpClient.close() is currently a
+			// no-op for the native-fetch transport, but the API surface is
+			// kept symmetrical with the Python SDK and may grow real cleanup
+			// later (e.g. AbortController for in-flight requests). Calling
+			// it on every kill() path keeps the contract honest. The
+			// status/killed state is only updated on a successful delete so
+			// callers can still retry kill() to surface the error.
 			this._client.close();
 		}
 	}

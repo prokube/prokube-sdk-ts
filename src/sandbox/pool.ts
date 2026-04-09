@@ -155,6 +155,12 @@ export class SandboxPool {
 		// poll-interval (and ~2s of the readyTimeout budget). Compare against
 		// pool.replicas (the backend's desired count) rather than
 		// options.poolSize, since the backend may clamp or apply defaults.
+		// Use the backend-reported pool name from here on. The backend may
+		// normalise the requested name (e.g. lowercase, truncate, suffix),
+		// in which case `options.name` and `pool.name` could differ — claim
+		// against `pool.name` so the probe definitely targets this pool.
+		const poolName = pool.name;
+
 		while (true) {
 			await pool.refresh();
 			if (pool.readyReplicas >= pool.replicas) break;
@@ -162,7 +168,7 @@ export class SandboxPool {
 			const remainingMs = deadline - Date.now();
 			if (remainingMs <= 0) {
 				console.warn(
-					`SandboxPool '${options.name}': timed out waiting for ${pool.replicas} ready replicas (saw ${pool.readyReplicas}); skipping warmup probe`,
+					`SandboxPool '${poolName}': timed out waiting for ${pool.replicas} ready replicas (saw ${pool.readyReplicas}); skipping warmup probe`,
 				);
 				return;
 			}
@@ -183,27 +189,26 @@ export class SandboxPool {
 		const remainingMs = deadline - Date.now();
 		if (remainingMs < 1000) {
 			console.warn(
-				`SandboxPool '${options.name}': less than 1s of warmup budget remains after readiness poll; skipping warmup probe`,
+				`SandboxPool '${poolName}': less than 1s of warmup budget remains after readiness poll; skipping warmup probe`,
 			);
 			return;
 		}
 		const probeTimeoutSec = Math.floor(remainingMs / 1000);
 
-		const sbx = await Sandbox.fromPool(options.name, options);
+		const sbx = await Sandbox.fromPool(poolName, options);
 		try {
 			await sbx.waitUntilReady(probeTimeoutSec);
 		} finally {
 			try {
 				await sbx.kill();
 			} catch (e) {
-				// Swallow kill errors — if the probe already succeeded we
-				// don't want to fail the outer create, and if it didn't the
-				// outer catch in create() will log anyway. Sandbox.kill now
-				// closes its underlying HTTP client in a finally block even
-				// when delete fails (see Sandbox.kill), so there's no
-				// connection leak to clean up here.
+				// Swallow kill errors. The probe sandbox is short-lived and
+				// the outer create() will log via its own catch as well.
+				// Sandbox.kill() now closes the underlying HttpClient in a
+				// finally block too, so there's nothing extra to clean up
+				// here even on failure.
 				console.warn(
-					`SandboxPool '${options.name}': failed to kill warmup probe sandbox '${sbx.name}' (${
+					`SandboxPool '${poolName}': failed to kill warmup probe sandbox '${sbx.name}' (${
 						e instanceof Error ? e.message : String(e)
 					})`,
 				);
