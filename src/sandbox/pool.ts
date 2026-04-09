@@ -1,4 +1,5 @@
 import { Config, type ConfigOptions } from "../common/config.js";
+import { sleep } from "../common/time.js";
 import type { EnvVar, PoolInfo, ResourceRequests } from "./models.js";
 import { PoolClient } from "./pool-client.js";
 import { Sandbox } from "./sandbox.js";
@@ -24,11 +25,17 @@ export interface CreatePoolOptions extends ConfigOptions {
 	secretRefs?: string[];
 	/**
 	 * If true (default), `SandboxPool.create` blocks until the pool's pods
-	 * reach `readyReplicas >= poolSize` and then claims a single sandbox to
-	 * run the Jupyter kernel warmup probe against. This guarantees the
-	 * first subsequent `Sandbox.fromPool` claim is not racing the
-	 * ipykernel cold-start window (~1.7s after pod Running). Set to
-	 * `false` to preserve the legacy instant-return behaviour.
+	 * reach `readyReplicas >= poolSize` and then claims a single sandbox
+	 * to run the Jupyter kernel warmup probe against, in order to
+	 * mitigate the cold-kernel race on the first subsequent
+	 * `Sandbox.fromPool` claim (the ipykernel cold-start window is
+	 * ~1.7s after pod Running). Set to `false` to preserve the legacy
+	 * instant-return behaviour.
+	 *
+	 * The warmup is best-effort: a readiness or probe timeout after the
+	 * pool CR has been created is logged via `console.warn` and the pool
+	 * is still returned. Errors from the underlying pool create API call
+	 * itself always propagate.
 	 */
 	waitUntilReady?: boolean;
 	/**
@@ -71,13 +78,16 @@ export class SandboxPool {
 	 * `Sandbox.waitUntilReady()`, then kills the probe sandbox. The
 	 * probe's wall-clock is roughly the ipykernel cold-start window, so
 	 * by the time this call returns the other pool pods have had similar
-	 * warm-up time. This eliminates the cold-kernel race on the first
-	 * `Sandbox.fromPool` + `runCode` sequence against a fresh pool.
+	 * warm-up time. This *mitigates* the cold-kernel race on the first
+	 * `Sandbox.fromPool` + `runCode` sequence against a fresh pool, but
+	 * cannot guarantee it: readiness can time out, and
+	 * `Sandbox.waitUntilReady` itself logs a warning and returns when its
+	 * own probe deadline expires without seeing the marker.
 	 *
 	 * Pass `waitUntilReady: false` to preserve the legacy behaviour of
 	 * returning immediately after the CR is created.
 	 *
-	 * Warmup is best-effort: a timeout or probe error after the pool CR
+	 * Warmup is best-effort: a readiness or probe error after the pool CR
 	 * has been created is logged via `console.warn` and the pool is still
 	 * returned. Errors from the underlying pool create API call itself
 	 * always propagate.
@@ -136,29 +146,45 @@ export class SandboxPool {
 		const deadline = Date.now() + timeoutSec * 1000;
 		const pollIntervalMs = 2000;
 
-		// Phase 1: poll refresh() until readyReplicas >= poolSize or deadline.
-		while (pool.readyReplicas < options.poolSize) {
+		// Phase 1: poll refresh() until readyReplicas >= the backend-reported
+		// desired count or deadline. Refresh BEFORE the first sleep so an
+		// already-ready pool returns immediately without burning ~2s of
+		// poll-interval (and ~2s of the readyTimeout budget). Compare against
+		// pool.replicas (the backend's desired count) rather than
+		// options.poolSize, since the backend may clamp or apply defaults.
+		while (true) {
+			await pool.refresh();
+			if (pool.readyReplicas >= pool.replicas) break;
+
 			const remainingMs = deadline - Date.now();
 			if (remainingMs <= 0) {
 				console.warn(
-					`SandboxPool '${options.name}': timed out waiting for ${options.poolSize} ready replicas (saw ${pool.readyReplicas}); skipping warmup probe`,
+					`SandboxPool '${options.name}': timed out waiting for ${pool.replicas} ready replicas (saw ${pool.readyReplicas}); skipping warmup probe`,
 				);
 				return;
 			}
 			await sleep(Math.min(pollIntervalMs, remainingMs));
-			await pool.refresh();
 		}
 
 		// Phase 2: claim one sandbox, run the warmup probe via the
 		// existing Sandbox.waitUntilReady() path (which internally runs
 		// warmupKernel), then kill it. The remaining budget is what's
 		// left of readyTimeout after waiting for pods to come up.
+		//
+		// Sandbox.waitUntilReady's deadline math is millisecond-precise but
+		// its parameter is an integer second count internally clamped by
+		// warmupKernel (which itself skips when <1s remains). To avoid
+		// overrunning the caller's readyTimeout budget by up to ~999ms, we
+		// only run the probe when at least 1s of budget remains, and pass
+		// the floor of the remaining seconds rather than rounding up.
 		const remainingMs = deadline - Date.now();
-		if (remainingMs <= 0) {
-			console.warn(`SandboxPool '${options.name}': no time budget left for warmup probe; skipping`);
+		if (remainingMs < 1000) {
+			console.warn(
+				`SandboxPool '${options.name}': less than 1s of warmup budget remains after readiness poll; skipping warmup probe`,
+			);
 			return;
 		}
-		const probeTimeoutSec = Math.max(1, Math.floor(remainingMs / 1000));
+		const probeTimeoutSec = Math.floor(remainingMs / 1000);
 
 		const sbx = await Sandbox.fromPool(options.name, options);
 		try {
@@ -169,12 +195,20 @@ export class SandboxPool {
 			} catch (e) {
 				// Swallow kill errors — if the probe already succeeded we
 				// don't want to fail the outer create, and if it didn't the
-				// outer catch in create() will log anyway.
+				// outer catch in create() will log anyway. Note that
+				// Sandbox.kill only closes the underlying HTTP client after
+				// a successful delete; on failure the client stays open and
+				// would leak in long-lived processes. Close it explicitly.
 				console.warn(
 					`SandboxPool '${options.name}': failed to kill warmup probe sandbox '${sbx.name}' (${
 						e instanceof Error ? e.message : String(e)
-					})`,
+					}); closing its client to avoid a connection leak`,
 				);
+				try {
+					(sbx as unknown as { _client: { close(): void } })._client.close();
+				} catch {
+					// Last-ditch best-effort; nothing else we can do here.
+				}
 			}
 		}
 	}
@@ -262,8 +296,4 @@ export class SandboxPool {
 		if (info.cpu) this._cpu = info.cpu;
 		if (info.memory) this._memory = info.memory;
 	}
-}
-
-function sleep(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
 }

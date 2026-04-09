@@ -135,18 +135,21 @@ describe("SandboxPool", () => {
 
 			it("warms pool pods when waitUntilReady is true (default)", async () => {
 				const mockFetch = vi.mocked(fetch);
-				// 1. POST create pool — already has ready replicas so no
-				//    refresh-poll iterations needed.
+				// 1. POST create pool — already has ready replicas.
 				mockFetch.mockResolvedValueOnce(mockResponse(readyPoolData));
-				// 2. POST claim sandbox from pool.
+				// 2. GET pool — warmPoolPods refreshes BEFORE the first
+				//    sleep so an already-ready pool is detected immediately
+				//    without burning a 2s poll interval.
+				mockFetch.mockResolvedValueOnce(mockResponse(readyPoolData));
+				// 3. POST claim sandbox from pool.
 				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-warm", status: "Running" }));
-				// 3. GET sandbox (waitUntilReady -> refresh).
+				// 4. GET sandbox (waitUntilReady -> refresh).
 				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-warm", status: "Running" }));
-				// 4. POST /exec — warmup probe echoing marker.
+				// 5. POST /exec — warmup probe echoing marker.
 				mockFetch.mockImplementationOnce(async (_url, init) =>
 					probeRespond((init as RequestInit).body as string),
 				);
-				// 5. DELETE sandbox (kill probe sbx).
+				// 6. DELETE sandbox (kill probe sbx).
 				mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
 				const pool = await SandboxPool.create({

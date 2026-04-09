@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Config, type ConfigOptions } from "../common/config.js";
 import { SandboxError, SandboxTimeoutError } from "../common/errors.js";
+import { sleep } from "../common/time.js";
 import { SandboxClient } from "./client.js";
 import { CodeRunner } from "./code.js";
 import { CommandRunner } from "./commands.js";
@@ -354,8 +355,4 @@ function randomHex(length: number): string {
 	return Array.from(bytes, (b) => b.toString(16).padStart(2, "0"))
 		.join("")
 		.slice(0, length);
-}
-
-function sleep(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
 }
