@@ -120,7 +120,18 @@ export class SandboxPool {
 			return pool;
 		}
 
-		const readyTimeoutSec = options.readyTimeout ?? 300;
+		// Validate readyTimeout: a NaN or negative value would make
+		// `Date.now() + timeoutSec * 1000` produce NaN/-∞ and turn the
+		// readiness loop into an unbounded poll. Fall back to the default
+		// in that case rather than hanging silently.
+		const rawTimeout = options.readyTimeout ?? 300;
+		const readyTimeoutSec = Number.isFinite(rawTimeout) && rawTimeout >= 0 ? rawTimeout : 300;
+		if (readyTimeoutSec !== rawTimeout) {
+			console.warn(
+				`SandboxPool '${pool.name}': invalid readyTimeout ${String(rawTimeout)} ` +
+					`(must be a finite number >= 0); falling back to ${readyTimeoutSec}s`,
+			);
+		}
 		try {
 			await SandboxPool.warmPoolPods(pool, options, readyTimeoutSec);
 		} catch (e) {
