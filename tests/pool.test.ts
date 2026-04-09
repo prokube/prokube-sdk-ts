@@ -208,13 +208,17 @@ describe("SandboxPool", () => {
 				const mockFetch = vi.mocked(fetch);
 				// 1. POST create pool — already ready.
 				mockFetch.mockResolvedValueOnce(mockResponse(readyPoolData));
-				// 2. POST claim.
-				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-warm", status: "Running" }));
-				// 3+. Every subsequent call returns either a Running status
-				//     for GET refresh, or an empty-stdout result for /exec,
-				//     or a 204 for DELETE. The probe will never see the
-				//     marker and will time out, but the outer create must
-				//     still resolve.
+				// 2+. Every subsequent call routes by URL/method:
+				//   - GET on a sandbox-pools URL → return the ready pool
+				//     (warmPoolPods refreshes before claiming).
+				//   - POST claim → return a Running sandbox.
+				//   - GET on a sandbox URL → return Running for the
+				//     waitUntilReady refresh inside the probe.
+				//   - POST /exec → return empty stdout so the probe never
+				//     sees its marker and the warmup deadline trips.
+				//   - DELETE → 204 for kill().
+				// The probe should time out but the outer create must
+				// still resolve.
 				mockFetch.mockImplementation(async (url, init) => {
 					const u = url as string;
 					const method = (init as RequestInit | undefined)?.method ?? "GET";
@@ -230,6 +234,13 @@ describe("SandboxPool", () => {
 							session_id: "sess-warm",
 						});
 					}
+					if (u.includes("/sandbox-pools")) {
+						return mockResponse(readyPoolData);
+					}
+					if (u.includes("/sandboxes/claim")) {
+						return mockResponse({ name: "sb-warm", status: "Running" });
+					}
+					// GET on a sandbox URL — used by Sandbox.refresh().
 					return mockResponse({ name: "sb-warm", status: "Running" });
 				});
 

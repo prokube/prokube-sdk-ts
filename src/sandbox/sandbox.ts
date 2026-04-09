@@ -312,10 +312,19 @@ export class Sandbox {
 
 	async kill(): Promise<void> {
 		if (this._killed) return;
-		await this._client.delete(this._name);
-		this._status = SandboxStatus.Succeeded;
-		this._killed = true;
-		this._client.close();
+		try {
+			await this._client.delete(this._name);
+			this._status = SandboxStatus.Succeeded;
+			this._killed = true;
+		} finally {
+			// Always close the underlying HTTP client, even when delete
+			// fails. Otherwise a network error during kill would leak the
+			// connection in long-lived processes (e.g. SandboxPool's
+			// best-effort warmup probe). The status/killed state is only
+			// updated on a successful delete so callers can still retry
+			// kill() to surface the error.
+			this._client.close();
+		}
 	}
 
 	async refresh(): Promise<void> {

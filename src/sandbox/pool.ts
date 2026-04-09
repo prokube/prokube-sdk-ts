@@ -25,7 +25,9 @@ export interface CreatePoolOptions extends ConfigOptions {
 	secretRefs?: string[];
 	/**
 	 * If true (default), `SandboxPool.create` blocks until the pool's pods
-	 * reach `readyReplicas >= poolSize` and then claims a single sandbox
+	 * reach `readyReplicas >= pool.replicas` (the backend-reported desired
+	 * replica count, which may differ from the requested `poolSize` if the
+	 * backend clamps or applies defaults) and then claims a single sandbox
 	 * to run the Jupyter kernel warmup probe against, in order to
 	 * mitigate the cold-kernel race on the first subsequent
 	 * `Sandbox.fromPool` claim (the ipykernel cold-start window is
@@ -73,8 +75,9 @@ export class SandboxPool {
 	 * Create a new warm pool.
 	 *
 	 * By default (`waitUntilReady` unset or true), this blocks until the
-	 * pool's pods reach `readyReplicas >= poolSize`, then claims one
-	 * sandbox and runs the Jupyter kernel warmup probe against it via
+	 * pool's pods reach `readyReplicas >= pool.replicas` (the
+	 * backend-reported desired count), then claims one sandbox and runs
+	 * the Jupyter kernel warmup probe against it via
 	 * `Sandbox.waitUntilReady()`, then kills the probe sandbox. The
 	 * probe's wall-clock is roughly the ipykernel cold-start window, so
 	 * by the time this call returns the other pool pods have had similar
@@ -195,20 +198,15 @@ export class SandboxPool {
 			} catch (e) {
 				// Swallow kill errors — if the probe already succeeded we
 				// don't want to fail the outer create, and if it didn't the
-				// outer catch in create() will log anyway. Note that
-				// Sandbox.kill only closes the underlying HTTP client after
-				// a successful delete; on failure the client stays open and
-				// would leak in long-lived processes. Close it explicitly.
+				// outer catch in create() will log anyway. Sandbox.kill now
+				// closes its underlying HTTP client in a finally block even
+				// when delete fails (see Sandbox.kill), so there's no
+				// connection leak to clean up here.
 				console.warn(
 					`SandboxPool '${options.name}': failed to kill warmup probe sandbox '${sbx.name}' (${
 						e instanceof Error ? e.message : String(e)
-					}); closing its client to avoid a connection leak`,
+					})`,
 				);
-				try {
-					(sbx as unknown as { _client: { close(): void } })._client.close();
-				} catch {
-					// Last-ditch best-effort; nothing else we can do here.
-				}
 			}
 		}
 	}
