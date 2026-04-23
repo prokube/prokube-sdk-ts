@@ -21,6 +21,7 @@
 	"files": ["dist"],
 	"scripts": {
 		"build": "tsup",
+		"prepare": "npm run build",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"lint": "biome check .",
