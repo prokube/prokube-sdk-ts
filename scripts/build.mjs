@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -62,11 +62,17 @@ runNodeScript(
 );
 
 if (existsSync("dist/index.d.ts")) {
-	copyFileSync("dist/index.d.ts", "dist/index.d.cts");
+	const dtsSource = readFileSync("dist/index.d.ts", "utf8").replace(
+		"//# sourceMappingURL=index.d.ts.map",
+		"//# sourceMappingURL=index.d.cts.map",
+	);
+	writeFileSync("dist/index.d.cts", dtsSource);
 }
 
 if (existsSync("dist/index.d.ts.map")) {
-	copyFileSync("dist/index.d.ts.map", "dist/index.d.cts.map");
+	const dtsMap = JSON.parse(readFileSync("dist/index.d.ts.map", "utf8"));
+	dtsMap.file = "index.d.cts";
+	writeFileSync("dist/index.d.cts.map", `${JSON.stringify(dtsMap)}\n`);
 }
 
 runNodeScript(checkDtsScript, [], "check-dts");
