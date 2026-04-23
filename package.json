@@ -23,6 +23,8 @@
 		"build": "node ./scripts/build.mjs",
 		"prepare": "node ./scripts/build.mjs",
 		"check:dts": "node ./scripts/check-dts.mjs",
+		"pack:release": "npm run build && npm pack --pack-destination ./.artifacts",
+		"smoke:release": "node ./scripts/smoke-release.mjs",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"lint": "biome check .",
