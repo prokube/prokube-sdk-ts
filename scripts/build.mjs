@@ -1,12 +1,28 @@
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync } from "node:fs";
 import { createRequire } from "node:module";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
-const tsupCli = require.resolve("tsup/dist/cli-default.js");
-const tscCli = require.resolve("typescript/bin/tsc");
 const checkDtsScript = fileURLToPath(new URL("./check-dts.mjs", import.meta.url));
+
+function resolvePackageBin(packageName, binName) {
+	const packageJsonPath = require.resolve(`${packageName}/package.json`);
+	const packageJson = require(packageJsonPath);
+	const binField = packageJson.bin;
+	const relativeBinPath =
+		typeof binField === "string" ? binField : binField?.[binName] ?? binField?.[packageName];
+
+	if (!relativeBinPath) {
+		throw new Error(`Could not resolve binary ${binName} from ${packageName}.`);
+	}
+
+	return resolve(dirname(packageJsonPath), relativeBinPath);
+}
+
+const tsupCli = resolvePackageBin("tsup", "tsup");
+const tscCli = resolvePackageBin("typescript", "tsc");
 
 function runNodeScript(scriptPath, args, label) {
 	const result = spawnSync(process.execPath, [scriptPath, ...args], {
