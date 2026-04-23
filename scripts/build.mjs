@@ -1,20 +1,15 @@
 import { spawnSync } from "node:child_process";
+import { copyFileSync, existsSync } from "node:fs";
 import { createRequire } from "node:module";
-import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const tsupCli = require.resolve("tsup/dist/cli-default.js");
+const tscCli = require.resolve("typescript/bin/tsc");
 const checkDtsScript = fileURLToPath(new URL("./check-dts.mjs", import.meta.url));
 
-if (!existsSync(tsupCli)) {
-	throw new Error(
-		"Prepare failed because tsup is not installed. Git installs require the build toolchain to be available in dependencies.",
-	);
-}
-
-function runNodeScript(scriptPath, label) {
-	const result = spawnSync(process.execPath, [scriptPath], {
+function runNodeScript(scriptPath, args, label) {
+	const result = spawnSync(process.execPath, [scriptPath, ...args], {
 		stdio: "inherit",
 	});
 
@@ -35,9 +30,23 @@ function runNodeScript(scriptPath, label) {
 
 		const detailMessage = details.length > 0 ? ` (${details.join(", ")})` : "";
 
-		throw new Error(`Prepare failed while running ${label}${detailMessage}.`);
+		throw new Error(`Build failed while running ${label}${detailMessage}.`);
 	}
 }
 
-runNodeScript(tsupCli, "tsup");
-runNodeScript(checkDtsScript, "check-dts");
+runNodeScript(tsupCli, [], "tsup");
+runNodeScript(
+	tscCli,
+	["--emitDeclarationOnly", "--project", "tsconfig.json", "--outDir", "dist"],
+	"tsc",
+);
+
+if (existsSync("dist/index.d.ts")) {
+	copyFileSync("dist/index.d.ts", "dist/index.d.cts");
+}
+
+if (existsSync("dist/index.d.ts.map")) {
+	copyFileSync("dist/index.d.ts.map", "dist/index.d.cts.map");
+}
+
+runNodeScript(checkDtsScript, [], "check-dts");

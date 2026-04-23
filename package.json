@@ -20,10 +20,9 @@
 	},
 	"files": ["dist"],
 	"scripts": {
-		"build": "tsup",
-		"prepare": "node ./scripts/prepare.mjs",
+		"build": "node ./scripts/build.mjs",
+		"prepare": "node ./scripts/build.mjs",
 		"check:dts": "node ./scripts/check-dts.mjs",
-		"postbuild": "npm run check:dts",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"lint": "biome check .",
