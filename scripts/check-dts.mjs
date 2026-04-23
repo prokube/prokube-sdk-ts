@@ -17,10 +17,11 @@ for (const file of declarationFiles) {
 	for (const match of source.matchAll(relativeImportPattern)) {
 		const specifier = match[1];
 		const candidate = resolve(baseDir, specifier);
+		const includesDeclarationExtension = /\.d\.(?:cts|ts)$/.test(specifier);
 		const strippedCandidate = candidate.replace(/\.(?:mjs|cjs|js)$/, "");
 		const hasRuntimeExtension = strippedCandidate !== candidate;
 		const paths = [
-			candidate,
+			...(includesDeclarationExtension ? [candidate] : []),
 			`${candidate}.d.ts`,
 			`${candidate}.d.cts`,
 			resolve(candidate, "index.d.ts"),
