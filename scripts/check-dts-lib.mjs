@@ -1,13 +1,54 @@
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-
-export const declarationFiles = ["dist/index.d.ts", "dist/index.d.cts"];
+import { dirname, relative, resolve, sep } from "node:path";
 
 const relativeImportPatterns = [
 	/from\s+["'](\.{1,2}\/[^"']+)["']/g,
 	/import\s+["'](\.{1,2}\/[^"']+)["']/g,
 	/import\(\s*["'](\.{1,2}\/[^"']+)["']\s*\)/g,
 ];
+
+function collectTypesFromExports(exportsField, declarationFiles) {
+	if (!exportsField || typeof exportsField !== "object") {
+		return;
+	}
+
+	if (Array.isArray(exportsField)) {
+		for (const entry of exportsField) {
+			collectTypesFromExports(entry, declarationFiles);
+		}
+		return;
+	}
+
+	for (const [key, value] of Object.entries(exportsField)) {
+		if (key === "types" && typeof value === "string") {
+			declarationFiles.add(value);
+			continue;
+		}
+
+		collectTypesFromExports(value, declarationFiles);
+	}
+}
+
+export function getDeclarationFilesFromPackageJson(packageJsonPath = resolve("package.json")) {
+	const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+	const files = new Set();
+
+	if (typeof packageJson.types === "string") {
+		files.add(packageJson.types);
+	}
+
+	collectTypesFromExports(packageJson.exports, files);
+
+	if (files.size === 0) {
+		throw new Error(
+			`No declaration entrypoints were found in ${packageJsonPath}. Declare them via "types" and/or "exports.*.types".`,
+		);
+	}
+
+	return [...files];
+}
+
+export const declarationFiles = getDeclarationFilesFromPackageJson();
 
 export function findRelativeSpecifiers(source) {
 	const specifiers = new Set();
@@ -44,7 +85,25 @@ export function getDeclarationCandidatePaths(baseDir, specifier) {
 	];
 }
 
-export function validateDeclarationFile(file) {
+function isWithinRoot(path, root) {
+	return path === root || path.startsWith(`${root}${sep}`);
+}
+
+export function getDeclarationRoot(file, packageRoot = resolve(".")) {
+	const absoluteFile = resolve(file);
+	const relativeFile = relative(packageRoot, absoluteFile);
+	const [rootSegment] = relativeFile.split(sep);
+
+	if (!rootSegment || rootSegment === "..") {
+		throw new Error(
+			`Cannot determine declaration root for ${file} relative to ${packageRoot}.`,
+		);
+	}
+
+	return resolve(packageRoot, rootSegment);
+}
+
+export function validateDeclarationFile(file, declarationRoot = getDeclarationRoot(file)) {
 	if (!existsSync(file)) {
 		throw new Error(
 			`Missing declaration file: ${file}. Ensure the build produced the expected declaration output before running this check.`,
@@ -56,8 +115,11 @@ export function validateDeclarationFile(file) {
 
 	for (const specifier of findRelativeSpecifiers(source)) {
 		const paths = getDeclarationCandidatePaths(baseDir, specifier);
+		const validPaths = [...new Set(paths)].filter((path) =>
+			isWithinRoot(path, declarationRoot),
+		);
 
-		if (![...new Set(paths)].some((path) => existsSync(path))) {
+		if (!validPaths.some((path) => existsSync(path))) {
 			throw new Error(`Broken declaration import in ${file}: ${specifier}`);
 		}
 	}

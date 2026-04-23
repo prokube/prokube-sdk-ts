@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
 	findRelativeSpecifiers,
+	getDeclarationFilesFromPackageJson,
 	validateDeclarationFile,
 } from "../scripts/check-dts-lib.mjs";
 
@@ -44,7 +45,7 @@ describe("check-dts helpers", () => {
 		writeFileSync(declarationFile, 'export { Foo } from "./foo.js";');
 		writeFileSync(join(dir, "foo.d.ts"), "export interface Foo {}\n");
 
-		expect(() => validateDeclarationFile(declarationFile)).not.toThrow();
+		expect(() => validateDeclarationFile(declarationFile, dir)).not.toThrow();
 	});
 
 	it("checks import type queries and side-effect imports", () => {
@@ -58,7 +59,22 @@ describe("check-dts helpers", () => {
 		writeFileSync(join(dir, "types.d.ts"), "export interface Foo {}\n");
 		writeFileSync(join(dir, "setup.d.ts"), "export {}\n");
 
-		expect(() => validateDeclarationFile(declarationFile)).not.toThrow();
+		expect(() => validateDeclarationFile(declarationFile, dir)).not.toThrow();
+	});
+
+	it("rejects imports that escape the published declaration root", () => {
+		const dir = createTempDir();
+		const distDir = join(dir, "dist");
+		const declarationFile = join(distDir, "index.d.ts");
+
+		mkdirSync(distDir);
+		writeFileSync(declarationFile, 'export { Foo } from "../src/foo.js";');
+		mkdirSync(join(dir, "src"));
+		writeFileSync(join(dir, "src", "foo.d.ts"), "export interface Foo {}\n");
+
+		expect(() => validateDeclarationFile(declarationFile, distDir)).toThrow(
+			`Broken declaration import in ${declarationFile}: ../src/foo.js`,
+		);
 	});
 
 	it("does not treat bare directories as valid declaration targets", () => {
@@ -68,8 +84,35 @@ describe("check-dts helpers", () => {
 		writeFileSync(declarationFile, 'export { Foo } from "./foo";');
 		mkdirSync(join(dir, "foo"));
 
-		expect(() => validateDeclarationFile(declarationFile)).toThrow(
+		expect(() => validateDeclarationFile(declarationFile, dir)).toThrow(
 			`Broken declaration import in ${declarationFile}: ./foo`,
 		);
+	});
+
+	it("collects declaration entrypoints from package.json metadata", () => {
+		const dir = createTempDir();
+		const packageJsonPath = join(dir, "package.json");
+
+		writeFileSync(
+			packageJsonPath,
+			JSON.stringify(
+				{
+					types: "./dist/index.d.ts",
+					exports: {
+						".": {
+							import: { types: "./dist/index.d.ts" },
+							require: { types: "./dist/index.d.cts" },
+						},
+					},
+				},
+				null,
+				2,
+			),
+		);
+
+		expect(getDeclarationFilesFromPackageJson(packageJsonPath)).toEqual([
+			"./dist/index.d.ts",
+			"./dist/index.d.cts",
+		]);
 	});
 });
