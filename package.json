@@ -21,7 +21,7 @@
 	"files": ["dist"],
 	"scripts": {
 		"build": "tsup",
-		"prepare": "tsup",
+		"prepare": "node ./scripts/prepare.mjs",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"lint": "biome check .",
