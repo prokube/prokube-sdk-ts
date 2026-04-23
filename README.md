@@ -20,6 +20,7 @@ default, so installing from source can leave `dist/` missing unless the package
 is explicitly trusted.
 
 ```bash
+# Replace v0.1.0 with the desired release tag; note the filename drops the 'v' prefix
 bun add https://github.com/prokube/prokube-sdk-ts/releases/download/v0.1.0/prokube-0.1.0.tgz
 ```
 
