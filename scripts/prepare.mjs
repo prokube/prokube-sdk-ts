@@ -1,9 +1,11 @@
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const tsupCli = resolve("node_modules/tsup/dist/cli-default.js");
-const checkDtsScript = resolve("scripts/check-dts.mjs");
+const require = createRequire(import.meta.url);
+const tsupCli = require.resolve("tsup/dist/cli-default.js");
+const checkDtsScript = fileURLToPath(new URL("./check-dts.mjs", import.meta.url));
 
 if (!existsSync(tsupCli)) {
 	throw new Error(
