@@ -21,14 +21,13 @@
 	"files": ["dist"],
 	"scripts": {
 		"build": "tsup",
-		"prepare": "npm run build",
+		"prepare": "tsup",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
 		"format": "biome format --write .",
-		"typecheck": "tsc --noEmit",
-		"prepublishOnly": "npm run build"
+		"typecheck": "tsc --noEmit"
 	},
 	"keywords": ["prokube", "sandbox", "ai", "ml", "kubernetes", "sdk"],
 	"license": "MIT",
