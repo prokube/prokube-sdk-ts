@@ -28,6 +28,10 @@ function runNodeScript(scriptPath, args, label) {
 			details.push(`exit status: ${result.status}`);
 		}
 
+		if (result.status === null && !result.error && !result.signal) {
+			details.push("no exit status returned");
+		}
+
 		const detailMessage = details.length > 0 ? ` (${details.join(", ")})` : "";
 
 		throw new Error(`Build failed while running ${label}${detailMessage}.`);
