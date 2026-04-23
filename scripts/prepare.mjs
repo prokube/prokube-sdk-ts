@@ -39,4 +39,3 @@ function runNodeScript(scriptPath, label) {
 
 runNodeScript(tsupCli, "tsup");
 runNodeScript(checkDtsScript, "check-dts");
-}
