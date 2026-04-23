@@ -23,7 +23,7 @@
 		"build": "tsup",
 		"prepare": "node ./scripts/prepare.mjs",
 		"check:dts": "node ./scripts/check-dts.mjs",
-		"postbuild": "npm run check:dts",
+		"postbuild": "node ./scripts/check-dts.mjs",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"lint": "biome check .",
