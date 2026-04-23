@@ -1,10 +1,35 @@
 import { spawnSync } from "node:child_process";
-const result = spawnSync(process.execPath, ["--run", "build"], {
+
+const packageManagerExec = process.env.npm_execpath;
+
+if (!packageManagerExec) {
+	throw new Error(
+		"Prepare failed because the package manager executable could not be determined from npm_execpath.",
+	);
+}
+
+const result = spawnSync(process.execPath, [packageManagerExec, "run", "build"], {
 	stdio: "inherit",
 });
 
-if (result.status !== 0) {
+if (result.error || result.signal || result.status !== 0) {
+	const details = [];
+
+	if (result.error) {
+		details.push(`spawn error: ${result.error.message}`);
+	}
+
+	if (result.signal) {
+		details.push(`terminated by signal: ${result.signal}`);
+	}
+
+	if (result.status !== null && result.status !== 0) {
+		details.push(`exit status: ${result.status}`);
+	}
+
+	const detailMessage = details.length > 0 ? ` (${details.join(", ")})` : "";
+
 	throw new Error(
-		"Prepare failed while running the build script. Ensure the git-based install includes the required build toolchain.",
+		`Prepare failed while running the build script${detailMessage}. Ensure the git-based install includes the required build toolchain.`,
 	);
 }
