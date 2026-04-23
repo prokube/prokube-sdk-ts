@@ -8,7 +8,13 @@ if (!packageManagerExec) {
 	);
 }
 
-const result = spawnSync(process.execPath, [packageManagerExec, "run", "build"], {
+const isNodeEntrypoint = /\.(?:c|m)?js$/i.test(packageManagerExec);
+const command = isNodeEntrypoint ? process.execPath : packageManagerExec;
+const args = isNodeEntrypoint
+	? [packageManagerExec, "run", "build"]
+	: ["run", "build"];
+
+const result = spawnSync(command, args, {
 	stdio: "inherit",
 });
 
