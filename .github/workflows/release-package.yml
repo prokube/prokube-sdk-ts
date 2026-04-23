@@ -28,11 +28,15 @@ jobs:
       - name: Pack release tarball
         run: npm pack --pack-destination ./.artifacts
 
+      - name: Prepare tagged release asset
+        if: github.event_name == 'release'
+        run: cp ./.artifacts/*.tgz "./.artifacts/prokube-${{ github.event.release.tag_name }}.tgz"
+
       - name: Upload release asset
         if: github.event_name == 'release'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ github.event.release.tag_name }}" ./.artifacts/*.tgz
+        run: gh release upload "${{ github.event.release.tag_name }}" "./.artifacts/prokube-${{ github.event.release.tag_name }}.tgz"
 
       - name: Upload workflow artifact
         if: github.event_name != 'release'
