@@ -8,7 +8,16 @@ const require = createRequire(import.meta.url);
 const checkDtsScript = fileURLToPath(new URL("./check-dts.mjs", import.meta.url));
 
 function resolvePackageBin(packageName, binName) {
-	const packageJsonPath = require.resolve(`${packageName}/package.json`);
+	let packageJsonPath;
+
+	try {
+		packageJsonPath = require.resolve(`${packageName}/package.json`);
+	} catch {
+		throw new Error(
+			`Missing required build dependency: ${packageName}. Install dependencies with optional packages enabled before running build/prepare.`,
+		);
+	}
+
 	const packageJson = require(packageJsonPath);
 	const binField = packageJson.bin;
 	const relativeBinPath =
