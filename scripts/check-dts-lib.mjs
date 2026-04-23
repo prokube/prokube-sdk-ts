@@ -48,8 +48,6 @@ export function getDeclarationFilesFromPackageJson(packageJsonPath = resolve("pa
 	return [...files];
 }
 
-export const declarationFiles = getDeclarationFilesFromPackageJson();
-
 export function findRelativeSpecifiers(source) {
 	const specifiers = new Set();
 
@@ -68,8 +66,11 @@ export function getDeclarationCandidatePaths(baseDir, specifier) {
 	const strippedCandidate = candidate.replace(/\.(?:mjs|cjs|js)$/, "");
 	const hasRuntimeExtension = strippedCandidate !== candidate;
 
+	if (includesDeclarationExtension) {
+		return [candidate];
+	}
+
 	return [
-		...(includesDeclarationExtension ? [candidate] : []),
 		`${candidate}.d.ts`,
 		`${candidate}.d.cts`,
 		resolve(candidate, "index.d.ts"),
@@ -91,16 +92,26 @@ function isWithinRoot(path, root) {
 
 export function getDeclarationRoot(file, packageRoot = resolve(".")) {
 	const absoluteFile = resolve(file);
-	const relativeFile = relative(packageRoot, absoluteFile);
+	const resolvedPackageRoot = resolve(packageRoot);
+	const relativeFile = relative(resolvedPackageRoot, absoluteFile);
 	const [rootSegment] = relativeFile.split(sep);
 
-	if (!rootSegment || rootSegment === "..") {
+	if (
+		!rootSegment ||
+		rootSegment === ".." ||
+		relativeFile.startsWith(`..${sep}`) ||
+		relativeFile === ".."
+	) {
 		throw new Error(
 			`Cannot determine declaration root for ${file} relative to ${packageRoot}.`,
 		);
 	}
 
-	return resolve(packageRoot, rootSegment);
+	if (!relativeFile.includes(sep)) {
+		return resolvedPackageRoot;
+	}
+
+	return resolve(resolvedPackageRoot, rootSegment);
 }
 
 export function validateDeclarationFile(file, declarationRoot = getDeclarationRoot(file)) {

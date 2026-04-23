@@ -1,11 +1,13 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
 	findRelativeSpecifiers,
+	getDeclarationCandidatePaths,
 	getDeclarationFilesFromPackageJson,
+	getDeclarationRoot,
 	validateDeclarationFile,
 } from "../scripts/check-dts-lib.mjs";
 
@@ -62,6 +64,12 @@ describe("check-dts helpers", () => {
 		expect(() => validateDeclarationFile(declarationFile, dir)).not.toThrow();
 	});
 
+	it("keeps explicit declaration specifiers exact", () => {
+		const paths = getDeclarationCandidatePaths("/tmp/dist", "./foo.d.ts");
+
+		expect(paths).toEqual([resolve("/tmp/dist", "./foo.d.ts")]);
+	});
+
 	it("rejects imports that escape the published declaration root", () => {
 		const dir = createTempDir();
 		const distDir = join(dir, "dist");
@@ -114,5 +122,14 @@ describe("check-dts helpers", () => {
 			"./dist/index.d.ts",
 			"./dist/index.d.cts",
 		]);
+	});
+
+	it("uses the package root for root-level declaration files", () => {
+		const dir = createTempDir();
+		const declarationFile = join(dir, "index.d.ts");
+
+		writeFileSync(declarationFile, "export interface Root {}\n");
+
+		expect(getDeclarationRoot(declarationFile, dir)).toBe(dir);
 	});
 });
