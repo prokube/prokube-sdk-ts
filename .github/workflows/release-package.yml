@@ -35,7 +35,7 @@ jobs:
           fi
 
       - name: Pack release tarball
-        run: npm pack --pack-destination ./.artifacts
+        run: mkdir -p ./.artifacts && npm pack --pack-destination ./.artifacts
 
       - name: Prepare tagged release asset
         if: github.event_name == 'release'
