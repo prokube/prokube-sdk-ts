@@ -25,6 +25,15 @@ jobs:
       - name: Build SDK
         run: npm run build
 
+      - name: Validate release tag
+        if: github.event_name == 'release'
+        run: |
+          expected_tag=$(node -e 'const version = require("./package.json").version; const [year, month, day] = version.split("."); console.log(`v${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`);')
+          if [ "$expected_tag" != "${{ github.event.release.tag_name }}" ]; then
+            echo "Expected release tag $expected_tag but got ${{ github.event.release.tag_name }}" >&2
+            exit 1
+          fi
+
       - name: Pack release tarball
         run: npm pack --pack-destination ./.artifacts
 

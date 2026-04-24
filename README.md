@@ -20,14 +20,15 @@ default, so installing from source can leave `dist/` missing unless the package
 is explicitly trusted.
 
 ```bash
-# Replace v23-04-26 with the desired release tag
-bun add https://github.com/prokube/prokube-sdk-ts/releases/download/v23-04-26/prokube-v23-04-26.tgz
+# Replace v2026-04-24 with the desired release tag
+bun add https://github.com/prokube/prokube-sdk-ts/releases/download/v2026-04-24/prokube-v2026-04-24.tgz
 ```
 
 Each GitHub release publishes a packed `.tgz` built from the SDK's `dist/`
 output, so consumers do not need to run `prepare` or rebuild inside Docker.
-The GitHub release tag and uploaded asset name can be date-based, for example
-`v23-04-26`.
+This repo uses date-based package versions such as `2026.4.24`, with matching
+GitHub release tags and asset names such as `v2026-04-24` and
+`prokube-v2026-04-24.tgz`.
 
 To validate the release package path locally, run:
 

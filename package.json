@@ -1,6 +1,6 @@
 {
 	"name": "prokube",
-	"version": "0.1.0",
+	"version": "2026.4.24",
 	"description": "TypeScript SDK for the prokube.ai sandbox platform",
 	"type": "module",
 	"main": "./dist/index.cjs",
@@ -18,7 +18,9 @@
 			}
 		}
 	},
-	"files": ["dist"],
+	"files": [
+		"dist"
+	],
 	"scripts": {
 		"build": "node ./scripts/build.mjs",
 		"prepare": "node ./scripts/build.mjs",
@@ -32,7 +34,14 @@
 		"format": "biome format --write .",
 		"typecheck": "tsc --noEmit"
 	},
-	"keywords": ["prokube", "sandbox", "ai", "ml", "kubernetes", "sdk"],
+	"keywords": [
+		"prokube",
+		"sandbox",
+		"ai",
+		"ml",
+		"kubernetes",
+		"sdk"
+	],
 	"license": "MIT",
 	"engines": {
 		"node": ">=20.19.0"
