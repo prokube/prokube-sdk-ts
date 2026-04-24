@@ -1,0 +1,14 @@
+{
+  "name": "prokube-release-consumer-smoke",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "prokube": "file:/tmp/prokube.tgz"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

@@ -1,0 +1,55 @@
+name: Release Package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build SDK
+        run: npm run build
+
+      - name: Validate release tag
+        if: github.event_name == 'release'
+        run: |
+          expected_tag=$(node -e 'const version = require("./package.json").version; const [year, month, day] = version.split("."); console.log(`v${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`);')
+          if [ "$expected_tag" != "${{ github.event.release.tag_name }}" ]; then
+            echo "Expected release tag $expected_tag but got ${{ github.event.release.tag_name }}" >&2
+            exit 1
+          fi
+
+      - name: Pack release tarball
+        run: npm pack --pack-destination ./.artifacts
+
+      - name: Prepare tagged release asset
+        if: github.event_name == 'release'
+        run: cp ./.artifacts/*.tgz "./.artifacts/prokube-${{ github.event.release.tag_name }}.tgz"
+
+      - name: Upload release asset
+        if: github.event_name == 'release'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.event.release.tag_name }}" "./.artifacts/prokube-${{ github.event.release.tag_name }}.tgz"
+
+      - name: Upload workflow artifact
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-package
+          path: ./.artifacts/*.tgz

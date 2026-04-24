@@ -5,13 +5,35 @@ TypeScript SDK for the [prokube.ai](https://prokube.ai) sandbox platform.
 ## Installation
 
 ```bash
-# From GitHub
-npm install prokube/prokube-sdk-ts
+# From npm/GitHub Packages when published
+npm install prokube
 
 # For development
 git clone https://github.com/prokube/prokube-sdk-ts.git
 cd prokube-sdk-ts
 npm install
+```
+
+For Bun consumers and Docker builds, prefer the prebuilt release tarball over a
+GitHub source dependency. Bun does not run git dependency lifecycle scripts by
+default, so installing from source can leave `dist/` missing unless the package
+is explicitly trusted.
+
+```bash
+# Replace v2026-04-24 with the desired release tag
+bun add https://github.com/prokube/prokube-sdk-ts/releases/download/v2026-04-24/prokube-v2026-04-24.tgz
+```
+
+Each GitHub release publishes a packed `.tgz` built from the SDK's `dist/`
+output, so consumers do not need to run `prepare` or rebuild inside Docker.
+This repo uses date-based package versions such as `2026.4.24`, with matching
+GitHub release tags and asset names such as `v2026-04-24` and
+`prokube-v2026-04-24.tgz`.
+
+To validate the release package path locally, run:
+
+```bash
+npm run smoke:release
 ```
 
 ## Quick Start
