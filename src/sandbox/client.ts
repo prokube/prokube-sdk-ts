@@ -9,10 +9,13 @@ import {
 import { HttpClient } from "../common/http.js";
 import {
 	type CodeResult,
+	type BatchFileWriteRequest,
+	type BatchFileWriteResponse,
 	type CommandResult,
 	type CreateSandboxRequest,
 	type FileInfo,
 	type SandboxInfo,
+	parseBatchFileWriteResponse,
 	parseCodeResult,
 	parseCommandResult,
 	parseFileInfo,
@@ -184,6 +187,16 @@ export class SandboxClient {
 			content: base64,
 			encoding: "base64",
 		});
+	}
+
+	async writeFilesBatch(
+		name: string,
+		items: BatchFileWriteRequest["items"],
+	): Promise<BatchFileWriteResponse> {
+		const data = (await this.http.post(this.sandboxSubPath(name, "files/batch"), {
+			items,
+		})) as Record<string, unknown>;
+		return parseBatchFileWriteResponse(data);
 	}
 
 	async readFile(name: string, path: string): Promise<Uint8Array> {

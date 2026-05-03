@@ -43,6 +43,26 @@ export interface FileInfo {
 	modified?: string;
 }
 
+export interface FileWriteInput {
+	path: string;
+	content: string | Uint8Array;
+}
+
+export interface BatchFileWriteResult {
+	index: number;
+	path: string;
+	success: boolean;
+	error?: string;
+}
+
+export interface BatchFileWriteResponse {
+	success: boolean;
+	total: number;
+	successCount: number;
+	failureCount: number;
+	results: BatchFileWriteResult[];
+}
+
 export interface PoolInfo {
 	name: string;
 	workspace: string;
@@ -104,7 +124,11 @@ export interface ExecRequest {
 export interface FileWriteRequest {
 	path: string;
 	content: string;
-	encoding: string;
+	encoding?: "text" | "base64";
+}
+
+export interface BatchFileWriteRequest {
+	items: FileWriteRequest[];
 }
 
 // ---- Parsing helpers ----
@@ -159,6 +183,25 @@ export function parseFileInfo(data: Record<string, unknown>): FileInfo {
 		isDir: ((data.isDir ?? data.is_dir) as boolean) ?? false,
 		size: (data.size as number) ?? 0,
 		modified: data.modified as string | undefined,
+	};
+}
+
+export function parseBatchFileWriteResponse(
+	data: Record<string, unknown>,
+): BatchFileWriteResponse {
+	const results = ((data.results ?? []) as Record<string, unknown>[]).map((item) => ({
+		index: (item.index as number) ?? 0,
+		path: (item.path as string) ?? "",
+		success: item.success === true,
+		error: item.error as string | undefined,
+	}));
+
+	return {
+		success: data.success === true,
+		total: (data.total as number) ?? results.length,
+		successCount: ((data.successCount ?? data.success_count) as number) ?? 0,
+		failureCount: ((data.failureCount ?? data.failure_count) as number) ?? 0,
+		results,
 	};
 }
 

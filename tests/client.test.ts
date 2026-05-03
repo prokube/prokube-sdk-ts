@@ -288,6 +288,111 @@ describe("SandboxClient", () => {
 			expect(body.encoding).toBe("base64");
 		});
 
+		it("writes multiple files with one batch request", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(
+				mockResponse({
+					success: true,
+					total: 2,
+					successCount: 2,
+					failureCount: 0,
+					results: [
+						{ index: 0, path: "/workspace/a.txt", success: true },
+						{ index: 1, path: "/workspace/b.bin", success: true },
+					],
+				}),
+			);
+
+			const client = new SandboxClient(makeConfig());
+			const result = await client.writeFilesBatch("sb-1", [
+				{
+					path: "/workspace/a.txt",
+					content: Buffer.from("alpha").toString("base64"),
+					encoding: "base64",
+				},
+				{
+					path: "/workspace/b.bin",
+					content: Buffer.from([0x00, 0xff]).toString("base64"),
+					encoding: "base64",
+				},
+			]);
+
+			expect(result.success).toBe(true);
+			expect(result.successCount).toBe(2);
+			expect(result.failureCount).toBe(0);
+			expect(result.results.map((item) => item.path)).toEqual([
+				"/workspace/a.txt",
+				"/workspace/b.bin",
+			]);
+
+			const url = mockFetch.mock.calls[0][0] as string;
+			expect(url).toContain("/files/batch");
+
+			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			expect(body.items).toEqual([
+				{
+					path: "/workspace/a.txt",
+					content: Buffer.from("alpha").toString("base64"),
+					encoding: "base64",
+				},
+				{
+					path: "/workspace/b.bin",
+					content: Buffer.from([0x00, 0xff]).toString("base64"),
+					encoding: "base64",
+				},
+			]);
+		});
+
+		it("accepts omitted encoding and preserves partial failures", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(
+				mockResponse({
+					success: false,
+					total: 2,
+					successCount: 1,
+					failureCount: 1,
+					results: [
+						{ index: 0, path: "/workspace/a.txt", success: true },
+						{
+							index: 1,
+							path: "/workspace/b.txt",
+							success: false,
+							error: "Sandbox is not running",
+						},
+					],
+				}),
+			);
+
+			const client = new SandboxClient(makeConfig());
+			const result = await client.writeFilesBatch("sb-1", [
+				{
+					path: "/workspace/a.txt",
+					content: Buffer.from("alpha").toString("base64"),
+				},
+				{
+					path: "/workspace/b.txt",
+					content: Buffer.from("beta").toString("base64"),
+				},
+			]);
+
+			expect(result.success).toBe(false);
+			expect(result.successCount).toBe(1);
+			expect(result.failureCount).toBe(1);
+			expect(result.results[1]?.error).toBe("Sandbox is not running");
+
+			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			expect(body.items).toEqual([
+				{
+					path: "/workspace/a.txt",
+					content: Buffer.from("alpha").toString("base64"),
+				},
+				{
+					path: "/workspace/b.txt",
+					content: Buffer.from("beta").toString("base64"),
+				},
+			]);
+		});
+
 		it("writes binary file with encoding=base64", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValue(mockResponse({}));

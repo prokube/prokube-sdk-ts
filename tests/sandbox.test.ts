@@ -274,6 +274,84 @@ describe("Sandbox", () => {
 			expect(url).toContain("/files");
 		});
 
+		it("writes multiple files in a batch", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockResolvedValueOnce(
+				mockResponse({
+					success: true,
+					total: 2,
+					successCount: 2,
+					failureCount: 0,
+					results: [
+						{ index: 0, path: "/workspace/a.txt", success: true },
+						{ index: 1, path: "/workspace/b.bin", success: true },
+					],
+				}),
+			);
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			const result = await sbx.files.writeBatch([
+				{ path: "/workspace/a.txt", content: "hello" },
+				{ path: "/workspace/b.bin", content: new Uint8Array([0x00, 0xff]) },
+			]);
+
+			expect(result.success).toBe(true);
+			expect(result.results.map((item) => item.path)).toEqual([
+				"/workspace/a.txt",
+				"/workspace/b.bin",
+			]);
+
+			const url = mockFetch.mock.calls[1][0] as string;
+			expect(url).toContain("/files/batch");
+
+			const body = JSON.parse(mockFetch.mock.calls[1][1]?.body as string);
+			expect(body.items).toEqual([
+				{
+					path: "/workspace/a.txt",
+					content: Buffer.from("hello").toString("base64"),
+					encoding: "base64",
+				},
+				{
+					path: "/workspace/b.bin",
+					content: Buffer.from([0x00, 0xff]).toString("base64"),
+					encoding: "base64",
+				},
+			]);
+		});
+
+		it("returns partial failures from batch writes", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockResolvedValueOnce(
+				mockResponse({
+					success: false,
+					total: 2,
+					successCount: 1,
+					failureCount: 1,
+					results: [
+						{ index: 0, path: "/workspace/a.txt", success: true },
+						{
+							index: 1,
+							path: "/workspace/b.txt",
+							success: false,
+							error: "Sandbox is not running",
+						},
+					],
+				}),
+			);
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			const result = await sbx.files.writeBatch([
+				{ path: "/workspace/a.txt", content: "hello" },
+				{ path: "/workspace/b.txt", content: "world" },
+			]);
+
+			expect(result.success).toBe(false);
+			expect(result.failureCount).toBe(1);
+			expect(result.results[1]?.error).toBe("Sandbox is not running");
+		});
+
 		it("reads file", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
