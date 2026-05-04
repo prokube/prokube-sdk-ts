@@ -14,7 +14,7 @@ import {
 	type CommandResult,
 	type CreateSandboxRequest,
 	type FileInfo,
-	type FileWriteRequest,
+	type FileWriteInput,
 	type SandboxInfo,
 	parseBatchFileWriteResponse,
 	parseCodeResult,
@@ -192,10 +192,17 @@ export class SandboxClient {
 
 	async writeFilesBatch(
 		name: string,
-		items: FileWriteRequest[],
+		items: FileWriteInput[],
 	): Promise<BatchFileWriteResponse> {
+		const textEncoder = new TextEncoder();
 		const data = (await this.http.post(this.sandboxSubPath(name, "files/batch"), {
-			items,
+			items: items.map((item) => ({
+				path: item.path,
+				content: uint8ArrayToBase64(
+					typeof item.content === "string" ? textEncoder.encode(item.content) : item.content,
+				),
+				encoding: "base64",
+			})),
 		})) as Record<string, unknown>;
 		return parseBatchFileWriteResponse(data);
 	}

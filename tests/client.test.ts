@@ -307,13 +307,11 @@ describe("SandboxClient", () => {
 			const result = await client.writeFilesBatch("sb-1", [
 				{
 					path: "/workspace/a.txt",
-					content: Buffer.from("alpha").toString("base64"),
-					encoding: "base64",
+					content: "alpha",
 				},
 				{
 					path: "/workspace/b.bin",
-					content: Buffer.from([0x00, 0xff]).toString("base64"),
-					encoding: "base64",
+					content: new Uint8Array([0x00, 0xff]),
 				},
 			]);
 
@@ -367,11 +365,11 @@ describe("SandboxClient", () => {
 			const result = await client.writeFilesBatch("sb-1", [
 				{
 					path: "/workspace/a.txt",
-					content: Buffer.from("alpha").toString("base64"),
+					content: "alpha",
 				},
 				{
 					path: "/workspace/b.txt",
-					content: Buffer.from("beta").toString("base64"),
+					content: "beta",
 				},
 			]);
 
@@ -385,10 +383,12 @@ describe("SandboxClient", () => {
 				{
 					path: "/workspace/a.txt",
 					content: Buffer.from("alpha").toString("base64"),
+					encoding: "base64",
 				},
 				{
 					path: "/workspace/b.txt",
 					content: Buffer.from("beta").toString("base64"),
+					encoding: "base64",
 				},
 			]);
 		});

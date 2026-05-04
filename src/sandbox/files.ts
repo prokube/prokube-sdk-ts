@@ -1,4 +1,3 @@
-import { uint8ArrayToBase64 } from "./base64.js";
 import type { SandboxClient } from "./client.js";
 import type { BatchFileWriteResponse, FileInfo, FileWriteInput } from "./models.js";
 
@@ -23,16 +22,7 @@ export class FileManager {
 	}
 
 	async writeBatch(items: FileWriteInput[]): Promise<BatchFileWriteResponse> {
-		return this.client.writeFilesBatch(
-			this.sandboxName,
-			items.map((item) => ({
-				path: item.path,
-				content: uint8ArrayToBase64(
-					typeof item.content === "string" ? textEncoder.encode(item.content) : item.content,
-				),
-				encoding: "base64",
-			})),
-		);
+		return this.client.writeFilesBatch(this.sandboxName, items);
 	}
 
 	async list(path = "/workspace"): Promise<FileInfo[]> {
