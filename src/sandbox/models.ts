@@ -189,13 +189,23 @@ export function parseFileInfo(data: Record<string, unknown>): FileInfo {
 export function parseBatchFileWriteResponse(
 	data: Record<string, unknown>,
 ): BatchFileWriteResponse {
-	const results = ((data.results ?? []) as Record<string, unknown>[]).map((item, index) => {
-		const path = item.path;
+	if (data.results !== undefined && !Array.isArray(data.results)) {
+		throw new Error("Invalid API response: batch results must be an array");
+	}
+
+	const rawResults = (data.results ?? []) as unknown[];
+	const results = rawResults.map((item, index) => {
+		if (typeof item !== "object" || item === null) {
+			throw new Error(`Invalid API response: batch result ${index} must be an object`);
+		}
+		const result = item as Record<string, unknown>;
+
+		const path = result.path;
 		if (typeof path !== "string" || path.length === 0) {
 			throw new Error(`Invalid API response: batch result ${index} is missing path`);
 		}
 
-		const resultIndex = item.index;
+		const resultIndex = result.index;
 		if (typeof resultIndex !== "number" || !Number.isInteger(resultIndex)) {
 			throw new Error(
 				`Invalid API response: batch result ${index} is missing or has invalid index`,
@@ -205,8 +215,8 @@ export function parseBatchFileWriteResponse(
 		return {
 			index: resultIndex,
 			path,
-			success: item.success === true,
-			error: typeof item.error === "string" ? item.error : undefined,
+			success: result.success === true,
+			error: typeof result.error === "string" ? result.error : undefined,
 		};
 	});
 
