@@ -105,7 +105,7 @@ export interface CreateSandboxRequest {
 	secretRefs?: string[];
 }
 
-// ---- Internal request models ----
+// ---- Request models ----
 
 export interface ClaimRequest {
 	poolName: string;
