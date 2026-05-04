@@ -9,7 +9,6 @@ import {
 import { HttpClient } from "../common/http.js";
 import { uint8ArrayToBase64 } from "./base64.js";
 import {
-	type BatchFileWriteRequest,
 	type BatchFileWriteResponse,
 	type CodeResult,
 	type CommandResult,

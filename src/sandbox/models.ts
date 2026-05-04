@@ -197,7 +197,9 @@ export function parseBatchFileWriteResponse(
 
 		const resultIndex = item.index;
 		if (typeof resultIndex !== "number" || !Number.isInteger(resultIndex)) {
-			throw new Error(`Invalid API response: batch result ${index} is missing index`);
+			throw new Error(
+				`Invalid API response: batch result ${index} is missing or has invalid index`,
+			);
 		}
 
 		return {
