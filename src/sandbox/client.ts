@@ -23,6 +23,8 @@ import {
 	parseSandboxInfo,
 } from "./models.js";
 
+const textEncoder = new TextEncoder();
+
 export class SandboxClient {
 	private readonly http: HttpClient;
 	private readonly workspace: string;
@@ -194,7 +196,6 @@ export class SandboxClient {
 		name: string,
 		items: FileWriteInput[],
 	): Promise<BatchFileWriteResponse> {
-		const textEncoder = new TextEncoder();
 		const data = (await this.http.post(this.sandboxSubPath(name, "files/batch"), {
 			items: items.map((item) => ({
 				path: item.path,
