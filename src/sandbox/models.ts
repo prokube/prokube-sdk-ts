@@ -206,7 +206,7 @@ export function parseBatchFileWriteResponse(
 			index: resultIndex,
 			path,
 			success: item.success === true,
-			error: item.error as string | undefined,
+			error: typeof item.error === "string" ? item.error : undefined,
 		};
 	});
 
