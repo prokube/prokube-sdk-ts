@@ -189,18 +189,44 @@ export function parseFileInfo(data: Record<string, unknown>): FileInfo {
 export function parseBatchFileWriteResponse(
 	data: Record<string, unknown>,
 ): BatchFileWriteResponse {
-	const results = ((data.results ?? []) as Record<string, unknown>[]).map((item) => ({
-		index: (item.index as number) ?? 0,
-		path: (item.path as string) ?? "",
-		success: item.success === true,
-		error: item.error as string | undefined,
-	}));
+	const results = ((data.results ?? []) as Record<string, unknown>[]).map((item, index) => {
+		const path = item.path;
+		if (typeof path !== "string" || path.length === 0) {
+			throw new Error(`Invalid API response: batch result ${index} is missing path`);
+		}
+
+		const resultIndex = item.index;
+		if (typeof resultIndex !== "number" || !Number.isInteger(resultIndex)) {
+			throw new Error(`Invalid API response: batch result ${index} is missing index`);
+		}
+
+		return {
+			index: resultIndex,
+			path,
+			success: item.success === true,
+			error: item.error as string | undefined,
+		};
+	});
+
+	const total = typeof data.total === "number" ? data.total : results.length;
+	const successCount =
+		typeof data.successCount === "number"
+			? data.successCount
+			: typeof data.success_count === "number"
+				? data.success_count
+				: results.filter((item) => item.success).length;
+	const failureCount =
+		typeof data.failureCount === "number"
+			? data.failureCount
+			: typeof data.failure_count === "number"
+				? data.failure_count
+				: Math.max(total - successCount, 0);
 
 	return {
 		success: data.success === true,
-		total: (data.total as number) ?? results.length,
-		successCount: ((data.successCount ?? data.success_count) as number) ?? 0,
-		failureCount: ((data.failureCount ?? data.failure_count) as number) ?? 0,
+		total,
+		successCount: successCount,
+		failureCount,
 		results,
 	};
 }

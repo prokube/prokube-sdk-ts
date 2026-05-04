@@ -9,12 +9,13 @@ import {
 import { HttpClient } from "../common/http.js";
 import { uint8ArrayToBase64 } from "./base64.js";
 import {
-	type CodeResult,
 	type BatchFileWriteRequest,
 	type BatchFileWriteResponse,
+	type CodeResult,
 	type CommandResult,
 	type CreateSandboxRequest,
 	type FileInfo,
+	type FileWriteRequest,
 	type SandboxInfo,
 	parseBatchFileWriteResponse,
 	parseCodeResult,
@@ -192,7 +193,7 @@ export class SandboxClient {
 
 	async writeFilesBatch(
 		name: string,
-		items: BatchFileWriteRequest["items"],
+		items: FileWriteRequest[],
 	): Promise<BatchFileWriteResponse> {
 		const data = (await this.http.post(this.sandboxSubPath(name, "files/batch"), {
 			items,
