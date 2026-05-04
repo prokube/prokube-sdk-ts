@@ -7,6 +7,7 @@ import {
 	SandboxNotFoundError,
 } from "../common/errors.js";
 import { HttpClient } from "../common/http.js";
+import { uint8ArrayToBase64 } from "./base64.js";
 import {
 	type CodeResult,
 	type BatchFileWriteRequest,
@@ -217,9 +218,4 @@ export class SandboxClient {
 	close(): void {
 		this.http.close();
 	}
-}
-
-function uint8ArrayToBase64(bytes: Uint8Array): string {
-	// Node.js Buffer is available in Node 18+
-	return Buffer.from(bytes).toString("base64");
 }
