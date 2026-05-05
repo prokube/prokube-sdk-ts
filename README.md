@@ -60,6 +60,10 @@ console.log(cmdResult.exitCode);
 
 // File operations
 await sbx.files.write("/workspace/data.csv", "col1,col2\n1,2\n3,4");
+await sbx.files.writeBatch([
+  { path: "/workspace/app.ts", content: "console.log('hello')" },
+  { path: "/workspace/data.bin", content: new Uint8Array([0, 1]) },
+]);
 const content = await sbx.files.read("/workspace/output.txt");
 const files = await sbx.files.list("/workspace");
 
@@ -211,6 +215,7 @@ commandSuccess(result: CommandResult): boolean;
 ```typescript
 class FileManager {
   write(path: string, content: string | Uint8Array): Promise<void>;
+  writeBatch(items: FileWriteInput[]): Promise<BatchFileWriteResponse>;
   read(path: string): Promise<Uint8Array>;
   list(path?: string): Promise<FileInfo[]>;
 }

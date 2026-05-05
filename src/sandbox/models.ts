@@ -43,6 +43,26 @@ export interface FileInfo {
 	modified?: string;
 }
 
+export interface FileWriteInput {
+	path: string;
+	content: string | Uint8Array;
+}
+
+export interface BatchFileWriteResult {
+	index: number;
+	path: string;
+	success: boolean;
+	error?: string;
+}
+
+export interface BatchFileWriteResponse {
+	success: boolean;
+	total: number;
+	successCount: number;
+	failureCount: number;
+	results: BatchFileWriteResult[];
+}
+
 export interface PoolInfo {
 	name: string;
 	workspace: string;
@@ -85,7 +105,7 @@ export interface CreateSandboxRequest {
 	secretRefs?: string[];
 }
 
-// ---- Internal request models ----
+// ---- Request models ----
 
 export interface ClaimRequest {
 	poolName: string;
@@ -104,7 +124,11 @@ export interface ExecRequest {
 export interface FileWriteRequest {
 	path: string;
 	content: string;
-	encoding: string;
+	encoding?: "text" | "base64";
+}
+
+export interface BatchFileWriteRequest {
+	items: FileWriteRequest[];
 }
 
 // ---- Parsing helpers ----
@@ -159,6 +183,63 @@ export function parseFileInfo(data: Record<string, unknown>): FileInfo {
 		isDir: ((data.isDir ?? data.is_dir) as boolean) ?? false,
 		size: (data.size as number) ?? 0,
 		modified: data.modified as string | undefined,
+	};
+}
+
+export function parseBatchFileWriteResponse(
+	data: Record<string, unknown>,
+): BatchFileWriteResponse {
+	if (data.results !== undefined && !Array.isArray(data.results)) {
+		throw new Error("Invalid API response: batch results must be an array");
+	}
+
+	const rawResults = (data.results ?? []) as unknown[];
+	const results = rawResults.map((item, index) => {
+		if (typeof item !== "object" || item === null) {
+			throw new Error(`Invalid API response: batch result ${index} must be an object`);
+		}
+		const result = item as Record<string, unknown>;
+
+		const path = result.path;
+		if (typeof path !== "string" || path.length === 0) {
+			throw new Error(`Invalid API response: batch result ${index} is missing path`);
+		}
+
+		const resultIndex = result.index;
+		if (typeof resultIndex !== "number" || !Number.isInteger(resultIndex)) {
+			throw new Error(
+				`Invalid API response: batch result ${index} is missing or has invalid index`,
+			);
+		}
+
+		return {
+			index: resultIndex,
+			path,
+			success: result.success === true,
+			error: typeof result.error === "string" ? result.error : undefined,
+		};
+	});
+
+	const total = typeof data.total === "number" ? data.total : results.length;
+	const successCount =
+		typeof data.successCount === "number"
+			? data.successCount
+			: typeof data.success_count === "number"
+				? data.success_count
+				: results.filter((item) => item.success).length;
+	const failureCount =
+		typeof data.failureCount === "number"
+			? data.failureCount
+			: typeof data.failure_count === "number"
+				? data.failure_count
+				: Math.max(total - successCount, 0);
+
+	return {
+		success: data.success === true,
+		total,
+		successCount: successCount,
+		failureCount,
+		results,
 	};
 }
 

@@ -7,17 +7,23 @@ import {
 	SandboxNotFoundError,
 } from "../common/errors.js";
 import { HttpClient } from "../common/http.js";
+import { uint8ArrayToBase64 } from "./base64.js";
 import {
+	type BatchFileWriteResponse,
 	type CodeResult,
 	type CommandResult,
 	type CreateSandboxRequest,
 	type FileInfo,
+	type FileWriteInput,
 	type SandboxInfo,
+	parseBatchFileWriteResponse,
 	parseCodeResult,
 	parseCommandResult,
 	parseFileInfo,
 	parseSandboxInfo,
 } from "./models.js";
+
+const textEncoder = new TextEncoder();
 
 export class SandboxClient {
 	private readonly http: HttpClient;
@@ -186,6 +192,22 @@ export class SandboxClient {
 		});
 	}
 
+	async writeFilesBatch(
+		name: string,
+		items: FileWriteInput[],
+	): Promise<BatchFileWriteResponse> {
+		const data = (await this.http.post(this.sandboxSubPath(name, "files/batch"), {
+			items: items.map((item) => ({
+				path: item.path,
+				content: uint8ArrayToBase64(
+					typeof item.content === "string" ? textEncoder.encode(item.content) : item.content,
+				),
+				encoding: "base64",
+			})),
+		})) as Record<string, unknown>;
+		return parseBatchFileWriteResponse(data);
+	}
+
 	async readFile(name: string, path: string): Promise<Uint8Array> {
 		return this.http.getBytes(this.sandboxSubPath(name, "files/download"), {
 			path,
@@ -204,9 +226,4 @@ export class SandboxClient {
 	close(): void {
 		this.http.close();
 	}
-}
-
-function uint8ArrayToBase64(bytes: Uint8Array): string {
-	// Node.js Buffer is available in Node 18+
-	return Buffer.from(bytes).toString("base64");
 }
