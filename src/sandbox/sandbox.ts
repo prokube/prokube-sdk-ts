@@ -298,6 +298,7 @@ export class Sandbox {
 			const probeTimeoutSec = Math.min(maxProbeTimeoutSec, Math.floor(remainingMs / 1000));
 			const result = await this.runCode(probeCode, "python", probeTimeoutSec);
 			if (result.stdout.trim() === marker) return;
+			this._code.markSessionInvalid();
 
 			const postProbeRemainingMs = deadline - Date.now();
 			if (postProbeRemainingMs <= 0) break;

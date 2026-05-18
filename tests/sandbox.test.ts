@@ -535,6 +535,9 @@ describe("Sandbox", () => {
 				return url.includes("/exec");
 			});
 			expect(execCalls.length).toBeGreaterThanOrEqual(2);
+			const retryBody = JSON.parse(execCalls[1][1]?.body as string);
+			expect(retryBody.session_id).toBeUndefined();
+			expect(retryBody.reset_session).toBe(true);
 		});
 
 		it("waitUntilReady_warm_kernel_no_extra_latency", async () => {

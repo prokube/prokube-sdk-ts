@@ -33,10 +33,12 @@ export class CodeRunner {
 	}
 
 	resetSession(): void {
+		this.sessionId = undefined;
 		this.resetOnNextExec = true;
 	}
 
 	markSessionInvalid(): void {
+		this.sessionId = undefined;
 		this.resetOnNextExec = true;
 	}
 
