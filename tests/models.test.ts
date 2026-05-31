@@ -134,7 +134,6 @@ describe("parseCodeResult", () => {
 			stderr: "",
 			success: true,
 			error_name: "TimeoutError",
-			error_value: "execution timed out",
 		});
 
 		expect(result.success).toBe(false);
@@ -169,6 +168,19 @@ describe("parseCommandResult", () => {
 		const result = parseCommandResult({
 			stdout: "",
 			stderr: "[Timeout: no response after 15s]",
+			exitCode: 0,
+			durationMs: 15000,
+		});
+
+		expect(result.exitCode).toBe(-1);
+		expect(commandSuccess(result)).toBe(false);
+	});
+
+	it("maps timeout command error name to non-zero exit", () => {
+		const result = parseCommandResult({
+			stdout: "",
+			stderr: "",
+			errorName: "ExecutionTimeout",
 			exitCode: 0,
 			durationMs: 15000,
 		});

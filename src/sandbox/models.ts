@@ -180,14 +180,12 @@ export function parseCommandResult(data: Record<string, unknown>): CommandResult
 }
 
 function isTimeoutExecutionResponse(data: Record<string, unknown>): boolean {
-	const values = [
-		data.stderr,
-		data.error_name,
-		data.errorName,
-		data.error_value,
-		data.errorValue,
-		data.detail,
-	];
+	const errorNames = [data.error_name, data.errorName];
+	if (errorNames.some((value) => typeof value === "string" && /timeout/i.test(value))) {
+		return true;
+	}
+
+	const values = [data.stderr, data.error_value, data.errorValue, data.detail];
 
 	return values.some((value) => typeof value === "string" && /\btime(?:d)?\s*out\b/i.test(value));
 }
