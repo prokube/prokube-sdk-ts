@@ -59,6 +59,7 @@ describe("parseSandboxInfo", () => {
 				image: "python:3.10",
 				poolName: "gpu-pool",
 				createdAt: "2025-01-01T00:00:00Z",
+				resumedFromPool: true,
 			},
 			"my-ns",
 		);
@@ -66,6 +67,7 @@ describe("parseSandboxInfo", () => {
 		expect(info.image).toBe("python:3.10");
 		expect(info.pool).toBe("gpu-pool");
 		expect(info.createdAt).toBe("2025-01-01T00:00:00Z");
+		expect(info.resumedFromPool).toBe(true);
 	});
 
 	it("handles alternative field names (phase, pool, created_at, sandboxName)", () => {

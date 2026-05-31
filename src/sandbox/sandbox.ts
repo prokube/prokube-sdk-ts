@@ -39,6 +39,7 @@ export class Sandbox {
 	private _image: string | undefined;
 	private _pool: string | undefined;
 	private _killed = false;
+	private _skipNextWarmup = false;
 
 	private readonly _timeout: number;
 
@@ -225,8 +226,11 @@ export class Sandbox {
 
 	async resume(): Promise<void> {
 		this.checkNotKilled();
-		await this._client.resume(this._name);
-		this._status = SandboxStatus.Running;
+		const info = await this._client.resume(this._name);
+		this._status = info.status;
+		if (info.image) this._image = info.image;
+		if (info.pool) this._pool = info.pool;
+		this._skipNextWarmup = info.resumedFromPool === true;
 		this._code.markSessionInvalid();
 	}
 
@@ -239,6 +243,10 @@ export class Sandbox {
 			await this.refresh();
 
 			if (this._status === SandboxStatus.Running) {
+				if (this._skipNextWarmup) {
+					this._skipNextWarmup = false;
+					return;
+				}
 				await this.warmupKernel(deadline);
 				return;
 			}

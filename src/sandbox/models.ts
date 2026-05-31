@@ -15,6 +15,7 @@ export interface SandboxInfo {
 	image?: string;
 	pool?: string;
 	createdAt?: string;
+	resumedFromPool?: boolean;
 }
 
 export interface CodeResult {
@@ -151,6 +152,7 @@ export function parseSandboxInfo(data: Record<string, unknown>, workspace: strin
 		image: data.image as string | undefined,
 		pool: (data.poolName ?? data.pool) as string | undefined,
 		createdAt: (data.createdAt ?? data.created_at) as string | undefined,
+		resumedFromPool: data.resumedFromPool === true,
 	};
 }
 
@@ -186,9 +188,7 @@ export function parseFileInfo(data: Record<string, unknown>): FileInfo {
 	};
 }
 
-export function parseBatchFileWriteResponse(
-	data: Record<string, unknown>,
-): BatchFileWriteResponse {
+export function parseBatchFileWriteResponse(data: Record<string, unknown>): BatchFileWriteResponse {
 	if (data.results !== undefined && !Array.isArray(data.results)) {
 		throw new Error("Invalid API response: batch results must be an array");
 	}

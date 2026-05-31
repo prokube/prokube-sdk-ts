@@ -200,10 +200,39 @@ describe("SandboxClient", () => {
 			mockFetch.mockResolvedValue(mockResponse({}));
 
 			const client = new SandboxClient(makeConfig());
-			await client.resume("sb-1");
+			const result = await client.resume("sb-1");
 
 			const url = mockFetch.mock.calls[0][0] as string;
 			expect(url).toContain("/sandboxes/sb-1/resume");
+			expect(result.name).toBe("sb-1");
+			expect(result.status).toBe(SandboxStatus.Running);
+			expect(result.resumedFromPool).toBe(false);
+		});
+
+		it("resume parses pool resume hint", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(
+				mockResponse({ name: "sb-1", phase: "Running", resumedFromPool: true }),
+			);
+
+			const client = new SandboxClient(makeConfig());
+			const result = await client.resume("sb-1");
+
+			expect(result.status).toBe(SandboxStatus.Running);
+			expect(result.resumedFromPool).toBe(true);
+		});
+
+		it("resume preserves non-running status from response", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(
+				mockResponse({ name: "sb-1", phase: "Pending", resumedFromPool: false }),
+			);
+
+			const client = new SandboxClient(makeConfig());
+			const result = await client.resume("sb-1");
+
+			expect(result.status).toBe(SandboxStatus.Pending);
+			expect(result.resumedFromPool).toBe(false);
 		});
 
 		it("pause throws SandboxError on 409", async () => {
