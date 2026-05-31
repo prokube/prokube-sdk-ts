@@ -441,6 +441,20 @@ describe("Sandbox", () => {
 			expect(sbx.status).toBe(SandboxStatus.Running);
 		});
 
+		it("resume preserves backend status", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockResolvedValueOnce(mockResponse({})); // pause
+			mockFetch.mockResolvedValueOnce(
+				mockResponse({ name: "sb-1", phase: "Pending", resumedFromPool: false }),
+			);
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			await sbx.pause();
+			await sbx.resume();
+			expect(sbx.status).toBe(SandboxStatus.Pending);
+		});
+
 		it("pause on killed sandbox throws", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
@@ -535,6 +549,9 @@ describe("Sandbox", () => {
 				return url.includes("/exec");
 			});
 			expect(execCalls.length).toBeGreaterThanOrEqual(2);
+			const retryBody = JSON.parse(execCalls[1][1]?.body as string);
+			expect(retryBody.session_id).toBeUndefined();
+			expect(retryBody.reset_session).toBe(true);
 		});
 
 		it("waitUntilReady_warm_kernel_no_extra_latency", async () => {
@@ -556,6 +573,58 @@ describe("Sandbox", () => {
 				return url.includes("/exec");
 			});
 			expect(execCalls.length).toBe(1);
+		});
+
+		it("waitUntilReady_skips_warmup_once_after_pool_resume", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockResolvedValueOnce(mockResponse({})); // pause
+			mockFetch.mockResolvedValueOnce(
+				mockResponse({ name: "sb-1", phase: "Running", resumedFromPool: true }),
+			);
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockImplementationOnce(async (_url, init) =>
+				probeRespond((init as RequestInit).body as string),
+			);
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			await sbx.pause();
+			await sbx.resume();
+			await sbx.waitUntilReady(5);
+
+			let execCalls = mockFetch.mock.calls.filter((c) => {
+				const url = c[0] as string;
+				return url.includes("/exec");
+			});
+			expect(execCalls).toHaveLength(0);
+
+			await sbx.waitUntilReady(5);
+			execCalls = mockFetch.mock.calls.filter((c) => {
+				const url = c[0] as string;
+				return url.includes("/exec");
+			});
+			expect(execCalls).toHaveLength(1);
+		});
+
+		it("waitUntilReady_does_not_skip_warmup_for_fromPool_claim", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(
+				mockResponse({ name: "sb-1", status: "Running", resumedFromPool: true }),
+			);
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockImplementationOnce(async (_url, init) =>
+				probeRespond((init as RequestInit).body as string),
+			);
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			await sbx.waitUntilReady(5);
+
+			const execCalls = mockFetch.mock.calls.filter((c) => {
+				const url = c[0] as string;
+				return url.includes("/exec");
+			});
+			expect(execCalls).toHaveLength(1);
 		});
 
 		it("waitUntilReady_warmup_timeout_does_not_throw", async () => {

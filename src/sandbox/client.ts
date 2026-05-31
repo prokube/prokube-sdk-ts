@@ -16,11 +16,13 @@ import {
 	type FileInfo,
 	type FileWriteInput,
 	type SandboxInfo,
+	SandboxStatus,
 	parseBatchFileWriteResponse,
 	parseCodeResult,
 	parseCommandResult,
 	parseFileInfo,
 	parseSandboxInfo,
+	parseStatus,
 } from "./models.js";
 
 const textEncoder = new TextEncoder();
@@ -129,8 +131,28 @@ export class SandboxClient {
 	}
 
 	async resume(name: string): Promise<void> {
+		await this.resumeInfo(name);
+	}
+
+	async resumeInfo(name: string): Promise<SandboxInfo> {
 		try {
-			await this.http.post(this.sandboxSubPath(name, "resume"));
+			const data = (await this.http.post(this.sandboxSubPath(name, "resume"))) as Record<
+				string,
+				unknown
+			>;
+			const responseName = (data.name ?? data.sandboxName) as string | undefined;
+			if (responseName) return parseSandboxInfo(data, this.workspace);
+			const responseStatus = (data.status ?? data.phase) as string | undefined;
+
+			return {
+				name,
+				workspace: this.workspace,
+				status: responseStatus ? parseStatus(responseStatus) : SandboxStatus.Running,
+				image: data.image as string | undefined,
+				pool: (data.poolName ?? data.pool) as string | undefined,
+				createdAt: (data.createdAt ?? data.created_at) as string | undefined,
+				resumedFromPool: data.resumedFromPool === true,
+			};
 		} catch (e) {
 			if (e instanceof ProKubeError && e.statusCode === 409) {
 				throw new SandboxError(`Cannot resume sandbox '${name}': not in Paused state`, 409);
@@ -192,10 +214,7 @@ export class SandboxClient {
 		});
 	}
 
-	async writeFilesBatch(
-		name: string,
-		items: FileWriteInput[],
-	): Promise<BatchFileWriteResponse> {
+	async writeFilesBatch(name: string, items: FileWriteInput[]): Promise<BatchFileWriteResponse> {
 		const data = (await this.http.post(this.sandboxSubPath(name, "files/batch"), {
 			items: items.map((item) => ({
 				path: item.path,
