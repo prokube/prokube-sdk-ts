@@ -117,6 +117,44 @@ describe("parseCodeResult", () => {
 		expect(result.errorValue).toBe("oops");
 		expect(result.traceback).toEqual(["line 1", "line 2"]);
 	});
+
+	it("maps timeout code result to failure even if backend reports success", () => {
+		const result = parseCodeResult({
+			stdout: "",
+			stderr: "Execution timed out after 5 seconds",
+			success: true,
+			durationMs: 5000,
+		});
+
+		expect(result.success).toBe(false);
+		expect(result.stderr).toContain("timed out");
+	});
+
+	it("maps timeout error name to failed code result", () => {
+		const result = parseCodeResult({
+			stdout: "",
+			stderr: "",
+			success: true,
+			error_name: "TimeoutError",
+		});
+
+		expect(result.success).toBe(false);
+		expect(result.errorName).toBe("TimeoutError");
+	});
+
+	it("parses camelCase error fields", () => {
+		const result = parseCodeResult({
+			stdout: "",
+			stderr: "",
+			success: false,
+			durationMs: 300,
+			errorName: "TimeoutError",
+			errorValue: "Code execution timed out",
+		});
+
+		expect(result.errorName).toBe("TimeoutError");
+		expect(result.errorValue).toBe("Code execution timed out");
+	});
 });
 
 describe("parseCommandResult", () => {
@@ -140,6 +178,43 @@ describe("parseCommandResult", () => {
 		});
 		expect(result.exitCode).toBe(1);
 		expect(commandSuccess(result)).toBe(false);
+	});
+
+	it("maps timeout command result to non-zero exit even if backend reports exit 0", () => {
+		const result = parseCommandResult({
+			stdout: "",
+			stderr: "[Timeout: no response after 15s]",
+			exitCode: 0,
+			durationMs: 15000,
+		});
+
+		expect(result.exitCode).toBe(-1);
+		expect(commandSuccess(result)).toBe(false);
+	});
+
+	it("maps timeout command error name to non-zero exit", () => {
+		const result = parseCommandResult({
+			stdout: "",
+			stderr: "",
+			errorName: "ExecutionTimeout",
+			exitCode: 0,
+			durationMs: 15000,
+		});
+
+		expect(result.exitCode).toBe(-1);
+		expect(commandSuccess(result)).toBe(false);
+	});
+
+	it("does not fail a successful command for ordinary stderr timeout text", () => {
+		const result = parseCommandResult({
+			stdout: "ok\n",
+			stderr: "warning: timeout option ignored\n",
+			exitCode: 0,
+			durationMs: 10,
+		});
+
+		expect(result.exitCode).toBe(0);
+		expect(commandSuccess(result)).toBe(true);
 	});
 });
 

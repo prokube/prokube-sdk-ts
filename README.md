@@ -236,6 +236,11 @@ interface CodeResult {
 }
 ```
 
+Execution timeouts are returned as failed results, not successful executions:
+`CodeResult.success` is `false`, and command results have a non-zero `exitCode`
+so `commandSuccess(result)` returns `false`. Timeout details are included in the
+error fields or `stderr` when provided by the backend.
+
 ### Errors
 
 ```
