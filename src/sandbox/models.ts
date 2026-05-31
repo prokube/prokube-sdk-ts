@@ -161,8 +161,8 @@ export function parseCodeResult(data: Record<string, unknown>): CodeResult {
 		stderr: (data.stderr as string) ?? "",
 		success: data.success === true && !timedOut,
 		executionTimeMs: ((data.durationMs ?? data.execution_time_ms) as number) ?? 0,
-		errorName: data.error_name as string | undefined,
-		errorValue: data.error_value as string | undefined,
+		errorName: (data.errorName ?? data.error_name) as string | undefined,
+		errorValue: (data.errorValue ?? data.error_value) as string | undefined,
 		traceback: data.traceback as string[] | undefined,
 		sessionId: data.session_id as string | undefined,
 	};

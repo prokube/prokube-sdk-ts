@@ -139,6 +139,20 @@ describe("parseCodeResult", () => {
 		expect(result.success).toBe(false);
 		expect(result.errorName).toBe("TimeoutError");
 	});
+
+	it("parses camelCase error fields", () => {
+		const result = parseCodeResult({
+			stdout: "",
+			stderr: "",
+			success: false,
+			durationMs: 300,
+			errorName: "TimeoutError",
+			errorValue: "Code execution timed out",
+		});
+
+		expect(result.errorName).toBe("TimeoutError");
+		expect(result.errorValue).toBe("Code execution timed out");
+	});
 });
 
 describe("parseCommandResult", () => {
