@@ -115,6 +115,31 @@ describe("parseCodeResult", () => {
 		expect(result.errorValue).toBe("oops");
 		expect(result.traceback).toEqual(["line 1", "line 2"]);
 	});
+
+	it("maps timeout code result to failure even if backend reports success", () => {
+		const result = parseCodeResult({
+			stdout: "",
+			stderr: "Execution timed out after 5 seconds",
+			success: true,
+			durationMs: 5000,
+		});
+
+		expect(result.success).toBe(false);
+		expect(result.stderr).toContain("timed out");
+	});
+
+	it("maps timeout error name to failed code result", () => {
+		const result = parseCodeResult({
+			stdout: "",
+			stderr: "",
+			success: true,
+			error_name: "TimeoutError",
+			error_value: "execution timed out",
+		});
+
+		expect(result.success).toBe(false);
+		expect(result.errorName).toBe("TimeoutError");
+	});
 });
 
 describe("parseCommandResult", () => {
@@ -137,6 +162,18 @@ describe("parseCommandResult", () => {
 			duration_ms: 200,
 		});
 		expect(result.exitCode).toBe(1);
+		expect(commandSuccess(result)).toBe(false);
+	});
+
+	it("maps timeout command result to non-zero exit even if backend reports exit 0", () => {
+		const result = parseCommandResult({
+			stdout: "",
+			stderr: "[Timeout: no response after 15s]",
+			exitCode: 0,
+			durationMs: 15000,
+		});
+
+		expect(result.exitCode).toBe(-1);
 		expect(commandSuccess(result)).toBe(false);
 	});
 });

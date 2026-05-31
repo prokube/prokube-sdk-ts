@@ -155,10 +155,11 @@ export function parseSandboxInfo(data: Record<string, unknown>, workspace: strin
 }
 
 export function parseCodeResult(data: Record<string, unknown>): CodeResult {
+	const timedOut = isTimeoutExecutionResponse(data);
 	return {
 		stdout: (data.stdout as string) ?? "",
 		stderr: (data.stderr as string) ?? "",
-		success: data.success === true,
+		success: data.success === true && !timedOut,
 		executionTimeMs: ((data.durationMs ?? data.execution_time_ms) as number) ?? 0,
 		errorName: data.error_name as string | undefined,
 		errorValue: data.error_value as string | undefined,
@@ -168,12 +169,27 @@ export function parseCodeResult(data: Record<string, unknown>): CodeResult {
 }
 
 export function parseCommandResult(data: Record<string, unknown>): CommandResult {
+	const timedOut = isTimeoutExecutionResponse(data);
+	const exitCode = ((data.exitCode ?? data.exit_code) as number | undefined) ?? -1;
 	return {
 		stdout: (data.stdout as string) ?? "",
 		stderr: (data.stderr as string) ?? "",
-		exitCode: ((data.exitCode ?? data.exit_code) as number) ?? -1,
+		exitCode: timedOut ? -1 : exitCode,
 		durationMs: ((data.durationMs ?? data.duration_ms) as number) ?? 0,
 	};
+}
+
+function isTimeoutExecutionResponse(data: Record<string, unknown>): boolean {
+	const values = [
+		data.stderr,
+		data.error_name,
+		data.errorName,
+		data.error_value,
+		data.errorValue,
+		data.detail,
+	];
+
+	return values.some((value) => typeof value === "string" && /\btime(?:d)?\s*out\b/i.test(value));
 }
 
 export function parseFileInfo(data: Record<string, unknown>): FileInfo {
@@ -186,9 +202,7 @@ export function parseFileInfo(data: Record<string, unknown>): FileInfo {
 	};
 }
 
-export function parseBatchFileWriteResponse(
-	data: Record<string, unknown>,
-): BatchFileWriteResponse {
+export function parseBatchFileWriteResponse(data: Record<string, unknown>): BatchFileWriteResponse {
 	if (data.results !== undefined && !Array.isArray(data.results)) {
 		throw new Error("Invalid API response: batch results must be an array");
 	}
