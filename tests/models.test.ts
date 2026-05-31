@@ -188,6 +188,18 @@ describe("parseCommandResult", () => {
 		expect(result.exitCode).toBe(-1);
 		expect(commandSuccess(result)).toBe(false);
 	});
+
+	it("does not fail a successful command for ordinary stderr timeout text", () => {
+		const result = parseCommandResult({
+			stdout: "ok\n",
+			stderr: "warning: timeout option ignored\n",
+			exitCode: 0,
+			durationMs: 10,
+		});
+
+		expect(result.exitCode).toBe(0);
+		expect(commandSuccess(result)).toBe(true);
+	});
 });
 
 describe("parseFileInfo", () => {

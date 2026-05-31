@@ -185,9 +185,22 @@ function isTimeoutExecutionResponse(data: Record<string, unknown>): boolean {
 		return true;
 	}
 
-	const values = [data.stderr, data.error_value, data.errorValue, data.detail];
+	const structuredValues = [data.error_value, data.errorValue, data.detail];
+	if (
+		structuredValues.some(
+			(value) => typeof value === "string" && /\btime(?:d)?\s*out\b/i.test(value),
+		)
+	) {
+		return true;
+	}
 
-	return values.some((value) => typeof value === "string" && /\btime(?:d)?\s*out\b/i.test(value));
+	return typeof data.stderr === "string" && isTimeoutStderr(data.stderr);
+}
+
+function isTimeoutStderr(value: string): boolean {
+	return (
+		/^\s*\[?timeout\b/i.test(value) || /\b(?:execution|command|code)\s+timed\s+out\b/i.test(value)
+	);
 }
 
 export function parseFileInfo(data: Record<string, unknown>): FileInfo {
