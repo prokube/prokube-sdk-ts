@@ -38,8 +38,7 @@ export class CodeRunner {
 	}
 
 	markSessionInvalid(): void {
-		this.sessionId = undefined;
-		this.resetOnNextExec = true;
+		this.resetSession();
 	}
 
 	getSessionId(): string | undefined {
