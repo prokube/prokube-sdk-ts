@@ -226,7 +226,7 @@ export class Sandbox {
 
 	async resume(): Promise<void> {
 		this.checkNotKilled();
-		const info = await this._client.resume(this._name);
+		const info = await this._client.resumeInfo(this._name);
 		this._status = info.status;
 		if (info.image) this._image = info.image;
 		if (info.pool) this._pool = info.pool;

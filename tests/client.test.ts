@@ -200,38 +200,47 @@ describe("SandboxClient", () => {
 			mockFetch.mockResolvedValue(mockResponse({}));
 
 			const client = new SandboxClient(makeConfig());
-			const result = await client.resume("sb-1");
+			await expect(client.resume("sb-1")).resolves.toBeUndefined();
 
 			const url = mockFetch.mock.calls[0][0] as string;
 			expect(url).toContain("/sandboxes/sb-1/resume");
-			expect(result.name).toBe("sb-1");
-			expect(result.status).toBe(SandboxStatus.Running);
-			expect(result.resumedFromPool).toBe(false);
 		});
 
-		it("resume parses pool resume hint", async () => {
+		it("resumeInfo parses pool resume hint", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValue(
 				mockResponse({ name: "sb-1", phase: "Running", resumedFromPool: true }),
 			);
 
 			const client = new SandboxClient(makeConfig());
-			const result = await client.resume("sb-1");
+			const result = await client.resumeInfo("sb-1");
 
 			expect(result.status).toBe(SandboxStatus.Running);
 			expect(result.resumedFromPool).toBe(true);
 		});
 
-		it("resume preserves non-running status from response", async () => {
+		it("resumeInfo preserves non-running status from response", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValue(
 				mockResponse({ name: "sb-1", phase: "Pending", resumedFromPool: false }),
 			);
 
 			const client = new SandboxClient(makeConfig());
-			const result = await client.resume("sb-1");
+			const result = await client.resumeInfo("sb-1");
 
 			expect(result.status).toBe(SandboxStatus.Pending);
+			expect(result.resumedFromPool).toBe(false);
+		});
+
+		it("resumeInfo handles legacy empty response", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({}));
+
+			const client = new SandboxClient(makeConfig());
+			const result = await client.resumeInfo("sb-1");
+
+			expect(result.name).toBe("sb-1");
+			expect(result.status).toBe(SandboxStatus.Running);
 			expect(result.resumedFromPool).toBe(false);
 		});
 

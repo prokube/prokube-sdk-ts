@@ -130,7 +130,11 @@ export class SandboxClient {
 		}
 	}
 
-	async resume(name: string): Promise<SandboxInfo> {
+	async resume(name: string): Promise<void> {
+		await this.resumeInfo(name);
+	}
+
+	async resumeInfo(name: string): Promise<SandboxInfo> {
 		try {
 			const data = (await this.http.post(this.sandboxSubPath(name, "resume"))) as Record<
 				string,
