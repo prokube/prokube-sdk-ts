@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -134,14 +134,22 @@ function dependencyTreeIncludesPackage(dependencies, dependencyName) {
 }
 
 function listRuntimeDependencies() {
-	const output = execFileSync("npm", ["ls", "--all", "--omit=dev", "--json"], {
+	const result = spawnSync("npm", ["ls", "--all", "--omit=dev", "--json"], {
 		cwd: consumerDir,
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 
+	if (result.error) {
+		throw result.error;
+	}
+
+	if (!result.stdout) {
+		throw new Error("Unable to inspect runtime dependencies: npm ls returned no JSON");
+	}
+
 	try {
-		return JSON.parse(output);
+		return JSON.parse(result.stdout);
 	} catch (error) {
 		throw new Error(`Unable to parse npm ls runtime dependency output: ${error.message}`);
 	}
