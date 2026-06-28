@@ -8,7 +8,10 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 const artifactsDir = path.join(repoRoot, ".artifacts");
 const packageJson = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
-const tarballPath = path.join(artifactsDir, `${packageJson.name}-${packageJson.version}.tgz`);
+const packageName = packageJson.name;
+const packageInstallPath = packageName.split("/");
+const packedName = packageName.replace(/^@/, "").replaceAll("/", "-");
+const tarballPath = path.join(artifactsDir, `${packedName}-${packageJson.version}.tgz`);
 
 mkdirSync(artifactsDir, { recursive: true });
 
@@ -31,7 +34,7 @@ writeFileSync(
 			private: true,
 			type: "module",
 			dependencies: {
-				prokube: `file:${tarballPath}`,
+				[packageName]: `file:${tarballPath}`,
 			},
 		},
 		null,
@@ -41,7 +44,7 @@ writeFileSync(
 
 writeFileSync(
 	path.join(consumerDir, "index.mjs"),
-	`import { Config, Sandbox, commandSuccess } from "prokube";
+	`import { Config, Sandbox, commandSuccess } from ${JSON.stringify(packageName)};
 
 const config = new Config({
   apiUrl: "https://example.invalid/pkui",
@@ -65,7 +68,7 @@ if (!commandSuccess({ stdout: "", stderr: "", exitCode: 0, durationMs: 1 })) {
 
 writeFileSync(
 	path.join(consumerDir, "index.cjs"),
-	`const { Config, Sandbox, commandSuccess } = require("prokube");
+	`const { Config, Sandbox, commandSuccess } = require(${JSON.stringify(packageName)});
 
 const config = new Config({
   apiUrl: "https://example.invalid/pkui",
@@ -95,7 +98,7 @@ execFileSync("npm", ["install", "--omit=dev"], {
 execFileSync("node", ["index.mjs"], { cwd: consumerDir, stdio: "inherit" });
 execFileSync("node", ["index.cjs"], { cwd: consumerDir, stdio: "inherit" });
 
-const installedPackageDir = path.join(consumerDir, "node_modules", "prokube");
+const installedPackageDir = path.join(consumerDir, "node_modules", ...packageInstallPath);
 const installedPackageJson = JSON.parse(
 	readFileSync(path.join(installedPackageDir, "package.json"), "utf8"),
 );
@@ -113,8 +116,12 @@ for (const distFile of ["index.js", "index.cjs", "index.d.ts", "index.d.cts"]) {
 const forbiddenRuntimePackages = [["tsup"], ["typescript"], ["@types", "node"], ["esbuild"]];
 
 for (const packagePath of forbiddenRuntimePackages) {
-	const installedPath = path.join(consumerDir, "node_modules", ...packagePath);
-	if (existsSync(installedPath)) {
+	const installedPaths = [
+		path.join(consumerDir, "node_modules", ...packagePath),
+		path.join(installedPackageDir, "node_modules", ...packagePath),
+	];
+
+	if (installedPaths.some((installedPath) => existsSync(installedPath))) {
 		throw new Error(
 			`Build-only package ${packagePath.join("/")} was installed as a runtime dependency`,
 		);
