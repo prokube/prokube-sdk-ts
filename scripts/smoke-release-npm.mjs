@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -115,50 +115,20 @@ for (const distFile of ["index.js", "index.cjs", "index.d.ts", "index.d.cts"]) {
 
 const forbiddenRuntimePackages = ["tsup", "typescript", "@types/node", "esbuild"];
 
-function dependencyTreeIncludesPackage(dependencies, dependencyName) {
-	if (!dependencies) {
-		return false;
-	}
+const consumerLockfile = JSON.parse(
+	readFileSync(path.join(consumerDir, "package-lock.json"), "utf8"),
+);
 
-	for (const [installedName, dependency] of Object.entries(dependencies)) {
-		if (installedName === dependencyName) {
-			return true;
-		}
+function lockfileIncludesPackage(lockfile, dependencyName) {
+	const modulePath = `node_modules/${dependencyName}`;
 
-		if (dependencyTreeIncludesPackage(dependency.dependencies, dependencyName)) {
-			return true;
-		}
-	}
-
-	return false;
+	return Object.keys(lockfile.packages ?? {}).some(
+		(packagePath) => packagePath === modulePath || packagePath.endsWith(`/${modulePath}`),
+	);
 }
-
-function listRuntimeDependencies() {
-	const result = spawnSync("npm", ["ls", "--all", "--omit=dev", "--json"], {
-		cwd: consumerDir,
-		encoding: "utf8",
-		stdio: ["ignore", "pipe", "pipe"],
-	});
-
-	if (result.error) {
-		throw result.error;
-	}
-
-	if (!result.stdout) {
-		throw new Error("Unable to inspect runtime dependencies: npm ls returned no JSON");
-	}
-
-	try {
-		return JSON.parse(result.stdout);
-	} catch (error) {
-		throw new Error(`Unable to parse npm ls runtime dependency output: ${error.message}`);
-	}
-}
-
-const runtimeDependencyTree = listRuntimeDependencies();
 
 for (const dependencyName of forbiddenRuntimePackages) {
-	if (dependencyTreeIncludesPackage(runtimeDependencyTree.dependencies, dependencyName)) {
+	if (lockfileIncludesPackage(consumerLockfile, dependencyName)) {
 		throw new Error(`Build-only package ${dependencyName} was installed as a runtime dependency`);
 	}
 }
