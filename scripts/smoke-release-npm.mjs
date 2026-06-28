@@ -133,39 +133,24 @@ function dependencyTreeIncludesPackage(dependencies, dependencyName) {
 	return false;
 }
 
-function listRuntimeDependency(dependencyName) {
-	let output;
-
-	try {
-		output = execFileSync("npm", ["ls", dependencyName, "--all", "--omit=dev", "--json"], {
-			cwd: consumerDir,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-	} catch (error) {
-		if (!(error instanceof Error) || !("stdout" in error)) {
-			throw error;
-		}
-
-		output = error.stdout?.toString();
-		if (!output) {
-			throw new Error(
-				`Unable to inspect runtime dependency ${dependencyName}: npm ls returned no JSON`,
-			);
-		}
-	}
+function listRuntimeDependencies() {
+	const output = execFileSync("npm", ["ls", "--all", "--omit=dev", "--json"], {
+		cwd: consumerDir,
+		encoding: "utf8",
+		stdio: ["ignore", "pipe", "pipe"],
+	});
 
 	try {
 		return JSON.parse(output);
 	} catch (error) {
-		throw new Error(`Unable to parse npm ls output for ${dependencyName}: ${error.message}`);
+		throw new Error(`Unable to parse npm ls runtime dependency output: ${error.message}`);
 	}
 }
 
-for (const dependencyName of forbiddenRuntimePackages) {
-	const dependencyTree = listRuntimeDependency(dependencyName);
+const runtimeDependencyTree = listRuntimeDependencies();
 
-	if (dependencyTreeIncludesPackage(dependencyTree.dependencies, dependencyName)) {
+for (const dependencyName of forbiddenRuntimePackages) {
+	if (dependencyTreeIncludesPackage(runtimeDependencyTree.dependencies, dependencyName)) {
 		throw new Error(`Build-only package ${dependencyName} was installed as a runtime dependency`);
 	}
 }
