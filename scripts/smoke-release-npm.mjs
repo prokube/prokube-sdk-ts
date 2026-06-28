@@ -115,17 +115,58 @@ for (const distFile of ["index.js", "index.cjs", "index.d.ts", "index.d.cts"]) {
 
 const forbiddenRuntimePackages = ["tsup", "typescript", "@types/node", "esbuild"];
 
-for (const packageName of forbiddenRuntimePackages) {
+function dependencyTreeIncludesPackage(dependencies, dependencyName) {
+	if (!dependencies) {
+		return false;
+	}
+
+	for (const [installedName, dependency] of Object.entries(dependencies)) {
+		if (installedName === dependencyName) {
+			return true;
+		}
+
+		if (dependencyTreeIncludesPackage(dependency.dependencies, dependencyName)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function listRuntimeDependency(dependencyName) {
+	let output;
+
 	try {
-		execFileSync("npm", ["ls", packageName, "--all", "--omit=dev", "--json"], {
+		output = execFileSync("npm", ["ls", dependencyName, "--all", "--omit=dev", "--json"], {
 			cwd: consumerDir,
+			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
 		});
-		throw new Error(`Build-only package ${packageName} was installed as a runtime dependency`);
 	} catch (error) {
-		if (error instanceof Error && error.message.startsWith("Build-only package")) {
+		if (!(error instanceof Error) || !("stdout" in error)) {
 			throw error;
 		}
+
+		output = error.stdout?.toString();
+		if (!output) {
+			throw new Error(
+				`Unable to inspect runtime dependency ${dependencyName}: npm ls returned no JSON`,
+			);
+		}
+	}
+
+	try {
+		return JSON.parse(output);
+	} catch (error) {
+		throw new Error(`Unable to parse npm ls output for ${dependencyName}: ${error.message}`);
+	}
+}
+
+for (const dependencyName of forbiddenRuntimePackages) {
+	const dependencyTree = listRuntimeDependency(dependencyName);
+
+	if (dependencyTreeIncludesPackage(dependencyTree.dependencies, dependencyName)) {
+		throw new Error(`Build-only package ${dependencyName} was installed as a runtime dependency`);
 	}
 }
 
