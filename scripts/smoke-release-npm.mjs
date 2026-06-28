@@ -113,18 +113,19 @@ for (const distFile of ["index.js", "index.cjs", "index.d.ts", "index.d.cts"]) {
 	}
 }
 
-const forbiddenRuntimePackages = [["tsup"], ["typescript"], ["@types", "node"], ["esbuild"]];
+const forbiddenRuntimePackages = ["tsup", "typescript", "@types/node", "esbuild"];
 
-for (const packagePath of forbiddenRuntimePackages) {
-	const installedPaths = [
-		path.join(consumerDir, "node_modules", ...packagePath),
-		path.join(installedPackageDir, "node_modules", ...packagePath),
-	];
-
-	if (installedPaths.some((installedPath) => existsSync(installedPath))) {
-		throw new Error(
-			`Build-only package ${packagePath.join("/")} was installed as a runtime dependency`,
-		);
+for (const packageName of forbiddenRuntimePackages) {
+	try {
+		execFileSync("npm", ["ls", packageName, "--all", "--omit=dev", "--json"], {
+			cwd: consumerDir,
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		throw new Error(`Build-only package ${packageName} was installed as a runtime dependency`);
+	} catch (error) {
+		if (error instanceof Error && error.message.startsWith("Build-only package")) {
+			throw error;
+		}
 	}
 }
 
