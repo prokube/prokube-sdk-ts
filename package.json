@@ -18,14 +18,12 @@
 			}
 		}
 	},
-	"files": [
-		"dist"
-	],
+	"files": ["dist"],
 	"scripts": {
 		"build": "node ./scripts/build.mjs",
-		"prepare": "node ./scripts/build.mjs",
 		"check:dts": "node ./scripts/check-dts.mjs",
 		"pack:release": "npm run build && npm pack --pack-destination ./.artifacts",
+		"smoke:release:npm": "node ./scripts/smoke-release-npm.mjs",
 		"smoke:release": "node ./scripts/smoke-release.mjs",
 		"test": "vitest run",
 		"test:watch": "vitest",
@@ -34,25 +32,16 @@
 		"format": "biome format --write .",
 		"typecheck": "tsc --noEmit"
 	},
-	"keywords": [
-		"prokube",
-		"sandbox",
-		"ai",
-		"ml",
-		"kubernetes",
-		"sdk"
-	],
+	"keywords": ["prokube", "sandbox", "ai", "ml", "kubernetes", "sdk"],
 	"license": "MIT",
 	"engines": {
 		"node": ">=20.19.0"
 	},
-	"dependencies": {
-		"@types/node": "^25.5.0",
-		"tsup": "^8.0.0",
-		"typescript": "^5.7.0"
-	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.0",
+		"@types/node": "^25.5.0",
+		"tsup": "^8.0.0",
+		"typescript": "^5.7.0",
 		"vitest": "^3.0.0"
 	}
 }
