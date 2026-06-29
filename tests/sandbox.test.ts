@@ -48,9 +48,10 @@ describe("Sandbox", () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", status: "Running" }));
 
-			await Sandbox.fromPool("pool", { ...defaultConfig, autoIdleTimeoutSeconds: 900 });
+			const sbx = await Sandbox.fromPool("pool", { ...defaultConfig, autoIdleTimeoutSeconds: 900 });
 			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
 			expect(body.autoIdleTimeoutSeconds).toBe(900);
+			expect(sbx.autoIdleTimeoutSeconds).toBe(900);
 		});
 	});
 
@@ -128,13 +129,14 @@ describe("Sandbox", () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", status: "Pending" }));
 
-			await Sandbox.create("python:3.10", {
+			const sbx = await Sandbox.create("python:3.10", {
 				...defaultConfig,
 				autoIdleTimeoutSeconds: 1800,
 			});
 
 			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
 			expect(body.autoIdleTimeoutSeconds).toBe(1800);
+			expect(sbx.autoIdleTimeoutSeconds).toBe(1800);
 		});
 	});
 
@@ -478,6 +480,18 @@ describe("Sandbox", () => {
 			expect(sbx.status).toBe(SandboxStatus.Pending);
 		});
 
+		it("resume preserves known autoIdleTimeoutSeconds when response omits it", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockResolvedValueOnce(mockResponse({})); // pause
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Running" }));
+
+			const sbx = await Sandbox.fromPool("pool", { ...defaultConfig, autoIdleTimeoutSeconds: 900 });
+			await sbx.pause();
+			await sbx.resume();
+			expect(sbx.autoIdleTimeoutSeconds).toBe(900);
+		});
+
 		it("pause on killed sandbox throws", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
@@ -486,6 +500,18 @@ describe("Sandbox", () => {
 			const sbx = await Sandbox.fromPool("pool", defaultConfig);
 			await sbx.kill();
 			await expect(sbx.pause()).rejects.toThrow(SandboxError);
+		});
+	});
+
+	describe("refresh", () => {
+		it("preserves known autoIdleTimeoutSeconds when response omits it", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+
+			const sbx = await Sandbox.fromPool("pool", { ...defaultConfig, autoIdleTimeoutSeconds: 900 });
+			await sbx.refresh();
+			expect(sbx.autoIdleTimeoutSeconds).toBe(900);
 		});
 	});
 

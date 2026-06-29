@@ -79,6 +79,7 @@ describe("parseSandboxInfo", () => {
 				phase: "Paused",
 				pool: "cpu-pool",
 				created_at: "2025-06-01",
+				auto_idle_timeout_seconds: 900,
 			},
 			"ns",
 		);
@@ -86,6 +87,7 @@ describe("parseSandboxInfo", () => {
 		expect(info.status).toBe(SandboxStatus.Paused);
 		expect(info.pool).toBe("cpu-pool");
 		expect(info.createdAt).toBe("2025-06-01");
+		expect(info.autoIdleTimeoutSeconds).toBe(900);
 	});
 });
 
@@ -284,12 +286,14 @@ describe("parsePoolInfo", () => {
 				poolName: "alt-pool",
 				poolSize: 10,
 				ready_replicas: 7,
+				auto_idle_timeout_seconds: 600,
 			},
 			"ns",
 		);
 		expect(info.name).toBe("alt-pool");
 		expect(info.replicas).toBe(10);
 		expect(info.readyReplicas).toBe(7);
+		expect(info.autoIdleTimeoutSeconds).toBe(600);
 	});
 
 	it("throws when name is missing", () => {

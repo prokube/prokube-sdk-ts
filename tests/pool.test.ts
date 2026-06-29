@@ -208,5 +208,17 @@ describe("SandboxPool", () => {
 			expect(pool.cpu).toBe("4");
 			expect(pool.memory).toBe("8Gi");
 		});
+
+		it("preserves known autoIdleTimeoutSeconds when response omits it", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(mockResponse({ ...poolData, autoIdleTimeoutSeconds: 1200 }));
+			mockFetch.mockResolvedValueOnce(
+				mockResponse({ name: "gpu-pool", replicas: 5, readyReplicas: 5 }),
+			);
+
+			const pool = await SandboxPool.get("gpu-pool", defaultConfig);
+			await pool.refresh();
+			expect(pool.autoIdleTimeoutSeconds).toBe(1200);
+		});
 	});
 });

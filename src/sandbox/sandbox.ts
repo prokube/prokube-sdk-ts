@@ -94,7 +94,7 @@ export class Sandbox {
 				config.timeout,
 				info.image,
 				pool,
-				info.autoIdleTimeoutSeconds,
+				info.autoIdleTimeoutSeconds ?? options.autoIdleTimeoutSeconds,
 			);
 		} catch (e) {
 			client.close();
@@ -130,7 +130,7 @@ export class Sandbox {
 				config.timeout,
 				image,
 				info.pool,
-				info.autoIdleTimeoutSeconds,
+				info.autoIdleTimeoutSeconds ?? options.autoIdleTimeoutSeconds,
 			);
 		} catch (e) {
 			client.close();
@@ -258,7 +258,9 @@ export class Sandbox {
 		this._status = info.status;
 		if (info.image) this._image = info.image;
 		if (info.pool) this._pool = info.pool;
-		this._autoIdleTimeoutSeconds = info.autoIdleTimeoutSeconds;
+		if (info.autoIdleTimeoutSeconds !== undefined) {
+			this._autoIdleTimeoutSeconds = info.autoIdleTimeoutSeconds;
+		}
 		this._skipNextWarmup = info.resumedFromPool === true;
 		this._code.markSessionInvalid();
 	}
@@ -361,7 +363,9 @@ export class Sandbox {
 		this._status = info.status;
 		if (info.image) this._image = info.image;
 		if (info.pool) this._pool = info.pool;
-		this._autoIdleTimeoutSeconds = info.autoIdleTimeoutSeconds;
+		if (info.autoIdleTimeoutSeconds !== undefined) {
+			this._autoIdleTimeoutSeconds = info.autoIdleTimeoutSeconds;
+		}
 	}
 
 	// ---- Cleanup helper ----

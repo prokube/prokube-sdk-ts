@@ -157,7 +157,9 @@ export function parseSandboxInfo(data: Record<string, unknown>, workspace: strin
 		image: data.image as string | undefined,
 		pool: (data.poolName ?? data.pool) as string | undefined,
 		createdAt: (data.createdAt ?? data.created_at) as string | undefined,
-		autoIdleTimeoutSeconds: data.autoIdleTimeoutSeconds as number | undefined,
+		autoIdleTimeoutSeconds: (data.autoIdleTimeoutSeconds ?? data.auto_idle_timeout_seconds) as
+			| number
+			| undefined,
 		resumedFromPool: data.resumedFromPool === true,
 	};
 }
@@ -294,7 +296,9 @@ export function parsePoolInfo(data: Record<string, unknown>, workspace: string):
 		image: data.image as string | undefined,
 		cpu: data.cpu as string | undefined,
 		memory: data.memory as string | undefined,
-		autoIdleTimeoutSeconds: data.autoIdleTimeoutSeconds as number | undefined,
+		autoIdleTimeoutSeconds: (data.autoIdleTimeoutSeconds ?? data.auto_idle_timeout_seconds) as
+			| number
+			| undefined,
 	};
 }
 

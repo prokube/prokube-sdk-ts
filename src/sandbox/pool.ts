@@ -68,7 +68,13 @@ export class SandboxPool {
 				envVars: options.envVars,
 				secretRefs: options.secretRefs,
 			});
-			return new SandboxPool(info, client);
+			return new SandboxPool(
+				{
+					...info,
+					autoIdleTimeoutSeconds: info.autoIdleTimeoutSeconds ?? options.autoIdleTimeoutSeconds,
+				},
+				client,
+			);
 		} catch (e) {
 			client.close();
 			throw e;
@@ -161,6 +167,8 @@ export class SandboxPool {
 		if (info.image) this._image = info.image;
 		if (info.cpu) this._cpu = info.cpu;
 		if (info.memory) this._memory = info.memory;
-		this._autoIdleTimeoutSeconds = info.autoIdleTimeoutSeconds;
+		if (info.autoIdleTimeoutSeconds !== undefined) {
+			this._autoIdleTimeoutSeconds = info.autoIdleTimeoutSeconds;
+		}
 	}
 }
