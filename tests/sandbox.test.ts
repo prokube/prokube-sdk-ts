@@ -704,6 +704,30 @@ describe("Sandbox", () => {
 			}
 		}, 10000);
 
+		it("waitUntilReady_retries_warmup_gateway_timeout", async () => {
+			const mockFetch = vi.mocked(fetch);
+			// fromPool
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			// refresh: Running
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			// first warmup probe times out at Agent Gateway, second succeeds
+			mockFetch.mockResolvedValueOnce(mockResponse("upstream request timeout", 504));
+			mockFetch.mockImplementationOnce(async (input, init) => {
+				const body = JSON.parse(String(init?.body ?? "{}"));
+				const match = String(body.code ?? "").match(/print\("(__pk_warmup_[a-f0-9]+__)"\)/);
+				return mockResponse({
+					stdout: `${match?.[1] ?? ""}\n`,
+					stderr: "",
+					success: true,
+					durationMs: 5,
+					session_id: "sess-warm",
+				});
+			});
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			await expect(sbx.waitUntilReady(30)).resolves.toBeUndefined();
+		});
+
 		it("waitUntilReady_propagates_runCode_errors_from_probe", async () => {
 			// If runCode itself throws (e.g., backend unreachable), the warmup
 			// probe must propagate the exception rather than swallow it — that

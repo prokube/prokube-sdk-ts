@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Config, type ConfigOptions } from "../common/config.js";
-import { SandboxError, SandboxTimeoutError } from "../common/errors.js";
+import { ProKubeError, SandboxError, SandboxTimeoutError } from "../common/errors.js";
 import { SandboxClient } from "./client.js";
 import { CodeRunner } from "./code.js";
 import { CommandRunner } from "./commands.js";
@@ -304,7 +304,8 @@ export class Sandbox {
 	 * can return `success=true` with empty stdout.
 	 *
 	 * Bounded by `deadline`. Never throws on deadline exceeded — logs a
-	 * warning and returns. Propagates any error thrown by `runCode`.
+	 * warning and returns. Transient gateway timeouts during warmup are retried;
+	 * other errors from `runCode` still propagate.
 	 */
 	private async warmupKernel(deadline: number): Promise<void> {
 		this.checkNotKilled();
@@ -335,7 +336,19 @@ export class Sandbox {
 			// a separate concern (HTTP-layer fetch timeout). floor() at
 			// least guarantees probeTimeoutSec * 1000 <= remainingMs.
 			const probeTimeoutSec = Math.min(maxProbeTimeoutSec, Math.floor(remainingMs / 1000));
-			const result = await this.runCode(probeCode, "python", probeTimeoutSec);
+			let result: CodeResult;
+			try {
+				result = await this.runCode(probeCode, "python", probeTimeoutSec);
+			} catch (error) {
+				if (!(error instanceof ProKubeError) || error.statusCode !== 504) {
+					throw error;
+				}
+				this._code.markSessionInvalid();
+				const postErrorRemainingMs = deadline - Date.now();
+				if (postErrorRemainingMs <= 0) break;
+				await sleep(Math.min(probeIntervalMs, postErrorRemainingMs));
+				continue;
+			}
 			if (result.stdout.trim() === marker) return;
 			this._code.markSessionInvalid();
 
