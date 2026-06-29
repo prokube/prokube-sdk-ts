@@ -59,6 +59,7 @@ describe("parseSandboxInfo", () => {
 				image: "python:3.10",
 				poolName: "gpu-pool",
 				createdAt: "2025-01-01T00:00:00Z",
+				autoIdleTimeoutSeconds: 1800,
 				resumedFromPool: true,
 			},
 			"my-ns",
@@ -67,6 +68,7 @@ describe("parseSandboxInfo", () => {
 		expect(info.image).toBe("python:3.10");
 		expect(info.pool).toBe("gpu-pool");
 		expect(info.createdAt).toBe("2025-01-01T00:00:00Z");
+		expect(info.autoIdleTimeoutSeconds).toBe(1800);
 		expect(info.resumedFromPool).toBe(true);
 	});
 
@@ -262,6 +264,7 @@ describe("parsePoolInfo", () => {
 				image: "python:3.10",
 				cpu: "2",
 				memory: "4Gi",
+				autoIdleTimeoutSeconds: 1200,
 			},
 			"my-ns",
 		);
@@ -272,6 +275,7 @@ describe("parsePoolInfo", () => {
 		expect(info.image).toBe("python:3.10");
 		expect(info.cpu).toBe("2");
 		expect(info.memory).toBe("4Gi");
+		expect(info.autoIdleTimeoutSeconds).toBe(1200);
 	});
 
 	it("handles alternative field names (poolName, poolSize, ready_replicas)", () => {

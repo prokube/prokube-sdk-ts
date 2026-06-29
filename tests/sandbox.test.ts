@@ -43,6 +43,15 @@ describe("Sandbox", () => {
 			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
 			expect(body.volumeSize).toBe("20Gi");
 		});
+
+		it("sends autoIdleTimeoutSeconds when provided", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", status: "Running" }));
+
+			await Sandbox.fromPool("pool", { ...defaultConfig, autoIdleTimeoutSeconds: 900 });
+			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			expect(body.autoIdleTimeoutSeconds).toBe(900);
+		});
 	});
 
 	describe("create", () => {
@@ -83,6 +92,7 @@ describe("Sandbox", () => {
 			expect(body).not.toHaveProperty("cpu");
 			expect(body).not.toHaveProperty("memory");
 			expect(body).not.toHaveProperty("allowInternetAccess");
+			expect(body).not.toHaveProperty("autoIdleTimeoutSeconds");
 			expect(body).not.toHaveProperty("envVars");
 			expect(body).not.toHaveProperty("secretRefs");
 		});
@@ -112,6 +122,19 @@ describe("Sandbox", () => {
 				{ name: "BAZ", value: "qux" },
 			]);
 			expect(body.secretRefs).toEqual(["my-secret"]);
+		});
+
+		it("forwards autoIdleTimeoutSeconds", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", status: "Pending" }));
+
+			await Sandbox.create("python:3.10", {
+				...defaultConfig,
+				autoIdleTimeoutSeconds: 1800,
+			});
+
+			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			expect(body.autoIdleTimeoutSeconds).toBe(1800);
 		});
 	});
 

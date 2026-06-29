@@ -28,7 +28,17 @@ export class PoolClient {
 	// ---- Pool operations ----
 
 	async create(params: CreatePoolRequest): Promise<PoolInfo> {
-		const { name, image, poolSize, cpu, memory, allowInternetAccess, envVars, secretRefs } = params;
+		const {
+			name,
+			image,
+			poolSize,
+			cpu,
+			memory,
+			allowInternetAccess,
+			autoIdleTimeoutSeconds,
+			envVars,
+			secretRefs,
+		} = params;
 
 		// Use `!== undefined` for every optional field so that explicit
 		// falsy/empty values ("", "0") are forwarded to the backend (which
@@ -39,6 +49,9 @@ export class PoolClient {
 		if (cpu !== undefined) body.cpu = cpu;
 		if (memory !== undefined) body.memory = memory;
 		if (allowInternetAccess !== undefined) body.allowInternetAccess = allowInternetAccess;
+		if (autoIdleTimeoutSeconds !== undefined) {
+			body.autoIdleTimeoutSeconds = autoIdleTimeoutSeconds;
+		}
 		if (envVars !== undefined) body.envVars = envVars;
 		if (secretRefs !== undefined) body.secretRefs = secretRefs;
 

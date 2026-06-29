@@ -17,6 +17,8 @@ export interface CreatePoolOptions extends ConfigOptions {
 	resources?: ResourceRequests;
 	/** If set, whether pool members may reach the public internet. */
 	allowInternetAccess?: boolean;
+	/** Default auto-idle timeout in seconds for sandboxes claimed from this pool. */
+	autoIdleTimeoutSeconds?: number;
 	/** Environment variables to inject into each pool member. */
 	envVars?: EnvVar[];
 	/** Names of Kubernetes secrets to mount/reference in each pool member. */
@@ -32,6 +34,7 @@ export class SandboxPool {
 	private _image: string | undefined;
 	private _cpu: string | undefined;
 	private _memory: string | undefined;
+	private _autoIdleTimeoutSeconds: number | undefined;
 
 	private constructor(info: PoolInfo, client: PoolClient) {
 		this._client = client;
@@ -42,6 +45,7 @@ export class SandboxPool {
 		this._image = info.image;
 		this._cpu = info.cpu;
 		this._memory = info.memory;
+		this._autoIdleTimeoutSeconds = info.autoIdleTimeoutSeconds;
 	}
 
 	// ---- Factory methods ----
@@ -60,6 +64,7 @@ export class SandboxPool {
 				cpu: options.resources?.cpu,
 				memory: options.resources?.memory,
 				allowInternetAccess: options.allowInternetAccess,
+				autoIdleTimeoutSeconds: options.autoIdleTimeoutSeconds,
 				envVars: options.envVars,
 				secretRefs: options.secretRefs,
 			});
@@ -129,6 +134,10 @@ export class SandboxPool {
 		return this._memory;
 	}
 
+	get autoIdleTimeoutSeconds(): number | undefined {
+		return this._autoIdleTimeoutSeconds;
+	}
+
 	// ---- Operations ----
 
 	/**
@@ -152,5 +161,6 @@ export class SandboxPool {
 		if (info.image) this._image = info.image;
 		if (info.cpu) this._cpu = info.cpu;
 		if (info.memory) this._memory = info.memory;
+		this._autoIdleTimeoutSeconds = info.autoIdleTimeoutSeconds;
 	}
 }
