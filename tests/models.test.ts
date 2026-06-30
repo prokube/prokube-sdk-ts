@@ -59,6 +59,7 @@ describe("parseSandboxInfo", () => {
 				image: "python:3.10",
 				poolName: "gpu-pool",
 				createdAt: "2025-01-01T00:00:00Z",
+				autoIdleTimeoutSeconds: 1800,
 				resumedFromPool: true,
 			},
 			"my-ns",
@@ -67,6 +68,7 @@ describe("parseSandboxInfo", () => {
 		expect(info.image).toBe("python:3.10");
 		expect(info.pool).toBe("gpu-pool");
 		expect(info.createdAt).toBe("2025-01-01T00:00:00Z");
+		expect(info.autoIdleTimeoutSeconds).toBe(1800);
 		expect(info.resumedFromPool).toBe(true);
 	});
 
@@ -77,6 +79,7 @@ describe("parseSandboxInfo", () => {
 				phase: "Paused",
 				pool: "cpu-pool",
 				created_at: "2025-06-01",
+				auto_idle_timeout_seconds: 900,
 			},
 			"ns",
 		);
@@ -84,6 +87,7 @@ describe("parseSandboxInfo", () => {
 		expect(info.status).toBe(SandboxStatus.Paused);
 		expect(info.pool).toBe("cpu-pool");
 		expect(info.createdAt).toBe("2025-06-01");
+		expect(info.autoIdleTimeoutSeconds).toBe(900);
 	});
 });
 
@@ -262,6 +266,7 @@ describe("parsePoolInfo", () => {
 				image: "python:3.10",
 				cpu: "2",
 				memory: "4Gi",
+				autoIdleTimeoutSeconds: 1200,
 			},
 			"my-ns",
 		);
@@ -272,6 +277,7 @@ describe("parsePoolInfo", () => {
 		expect(info.image).toBe("python:3.10");
 		expect(info.cpu).toBe("2");
 		expect(info.memory).toBe("4Gi");
+		expect(info.autoIdleTimeoutSeconds).toBe(1200);
 	});
 
 	it("handles alternative field names (poolName, poolSize, ready_replicas)", () => {
@@ -280,12 +286,14 @@ describe("parsePoolInfo", () => {
 				poolName: "alt-pool",
 				poolSize: 10,
 				ready_replicas: 7,
+				auto_idle_timeout_seconds: 600,
 			},
 			"ns",
 		);
 		expect(info.name).toBe("alt-pool");
 		expect(info.replicas).toBe(10);
 		expect(info.readyReplicas).toBe(7);
+		expect(info.autoIdleTimeoutSeconds).toBe(600);
 	});
 
 	it("throws when name is missing", () => {

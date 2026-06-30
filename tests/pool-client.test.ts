@@ -24,11 +24,11 @@ describe("PoolClient", () => {
 
 	beforeEach(() => {
 		process.env = { ...originalEnv };
-		delete process.env.PROKUBE_API_KEY;
-		delete process.env.PROKUBE_USER_ID;
-		delete process.env.PROKUBE_API_URL;
-		delete process.env.PROKUBE_WORKSPACE;
-		delete process.env.KF_USER;
+		process.env.PROKUBE_API_KEY = undefined;
+		process.env.PROKUBE_USER_ID = undefined;
+		process.env.PROKUBE_API_URL = undefined;
+		process.env.PROKUBE_WORKSPACE = undefined;
+		process.env.KF_USER = undefined;
 		vi.stubGlobal("fetch", vi.fn());
 	});
 
@@ -101,6 +101,7 @@ describe("PoolClient", () => {
 			expect(body.cpu).toBeUndefined();
 			expect(body.memory).toBeUndefined();
 			expect(body).not.toHaveProperty("allowInternetAccess");
+			expect(body).not.toHaveProperty("autoIdleTimeoutSeconds");
 			expect(body).not.toHaveProperty("envVars");
 			expect(body).not.toHaveProperty("secretRefs");
 		});
@@ -129,6 +130,22 @@ describe("PoolClient", () => {
 				{ name: "BAZ", value: "qux" },
 			]);
 			expect(body.secretRefs).toEqual(["my-secret", "other-secret"]);
+		});
+
+		it("sends autoIdleTimeoutSeconds when provided", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ name: "my-pool", replicas: 1, readyReplicas: 0 }));
+
+			const client = new PoolClient(makeConfig());
+			await client.create({
+				name: "my-pool",
+				image: "python:3.10",
+				poolSize: 1,
+				autoIdleTimeoutSeconds: 600,
+			});
+
+			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			expect(body.autoIdleTimeoutSeconds).toBe(600);
 		});
 
 		it("sends allowInternetAccess=false explicitly", async () => {

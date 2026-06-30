@@ -55,9 +55,16 @@ export class SandboxClient {
 
 	// ---- Sandbox lifecycle ----
 
-	async claimFromPool(pool: string, volumeSize?: string): Promise<SandboxInfo> {
+	async claimFromPool(
+		pool: string,
+		volumeSize?: string,
+		autoIdleTimeoutSeconds?: number,
+	): Promise<SandboxInfo> {
 		const body: Record<string, unknown> = { poolName: pool };
-		if (volumeSize) body.volumeSize = volumeSize;
+		if (volumeSize !== undefined) body.volumeSize = volumeSize;
+		if (autoIdleTimeoutSeconds !== undefined) {
+			body.autoIdleTimeoutSeconds = autoIdleTimeoutSeconds;
+		}
 
 		try {
 			const data = (await this.http.post(`${this.sandboxesPath()}/claim`, body)) as Record<
@@ -74,8 +81,17 @@ export class SandboxClient {
 	}
 
 	async create(params: CreateSandboxRequest): Promise<SandboxInfo> {
-		const { image, name, volumeSize, cpu, memory, allowInternetAccess, envVars, secretRefs } =
-			params;
+		const {
+			image,
+			name,
+			volumeSize,
+			cpu,
+			memory,
+			allowInternetAccess,
+			autoIdleTimeoutSeconds,
+			envVars,
+			secretRefs,
+		} = params;
 
 		// Use `!== undefined` for every optional field so that explicit
 		// falsy/empty values ("", "0") are forwarded to the backend (which
@@ -88,6 +104,9 @@ export class SandboxClient {
 		if (cpu !== undefined) body.cpu = cpu;
 		if (memory !== undefined) body.memory = memory;
 		if (allowInternetAccess !== undefined) body.allowInternetAccess = allowInternetAccess;
+		if (autoIdleTimeoutSeconds !== undefined) {
+			body.autoIdleTimeoutSeconds = autoIdleTimeoutSeconds;
+		}
 		if (envVars !== undefined) body.envVars = envVars;
 		if (secretRefs !== undefined) body.secretRefs = secretRefs;
 

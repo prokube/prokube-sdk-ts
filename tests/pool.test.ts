@@ -71,6 +71,7 @@ describe("SandboxPool", () => {
 
 			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
 			expect(body).not.toHaveProperty("allowInternetAccess");
+			expect(body).not.toHaveProperty("autoIdleTimeoutSeconds");
 			expect(body).not.toHaveProperty("envVars");
 			expect(body).not.toHaveProperty("secretRefs");
 		});
@@ -96,6 +97,23 @@ describe("SandboxPool", () => {
 			expect(body.secretRefs).toEqual(["my-secret"]);
 			expect(body.cpu).toBe("2");
 			expect(body.memory).toBe("4Gi");
+		});
+
+		it("forwards autoIdleTimeoutSeconds to request body", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ ...poolData, autoIdleTimeoutSeconds: 1200 }));
+
+			const pool = await SandboxPool.create({
+				...defaultConfig,
+				name: "gpu-pool",
+				image: "python:3.10",
+				poolSize: 3,
+				autoIdleTimeoutSeconds: 1200,
+			});
+
+			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			expect(body.autoIdleTimeoutSeconds).toBe(1200);
+			expect(pool.autoIdleTimeoutSeconds).toBe(1200);
 		});
 	});
 
@@ -189,6 +207,18 @@ describe("SandboxPool", () => {
 			expect(pool.image).toBe("python:3.11");
 			expect(pool.cpu).toBe("4");
 			expect(pool.memory).toBe("8Gi");
+		});
+
+		it("preserves known autoIdleTimeoutSeconds when response omits it", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(mockResponse({ ...poolData, autoIdleTimeoutSeconds: 1200 }));
+			mockFetch.mockResolvedValueOnce(
+				mockResponse({ name: "gpu-pool", replicas: 5, readyReplicas: 5 }),
+			);
+
+			const pool = await SandboxPool.get("gpu-pool", defaultConfig);
+			await pool.refresh();
+			expect(pool.autoIdleTimeoutSeconds).toBe(1200);
 		});
 	});
 });

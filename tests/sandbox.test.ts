@@ -43,6 +43,16 @@ describe("Sandbox", () => {
 			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
 			expect(body.volumeSize).toBe("20Gi");
 		});
+
+		it("sends autoIdleTimeoutSeconds when provided", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", status: "Running" }));
+
+			const sbx = await Sandbox.fromPool("pool", { ...defaultConfig, autoIdleTimeoutSeconds: 900 });
+			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			expect(body.autoIdleTimeoutSeconds).toBe(900);
+			expect(sbx.autoIdleTimeoutSeconds).toBe(900);
+		});
 	});
 
 	describe("create", () => {
@@ -83,6 +93,7 @@ describe("Sandbox", () => {
 			expect(body).not.toHaveProperty("cpu");
 			expect(body).not.toHaveProperty("memory");
 			expect(body).not.toHaveProperty("allowInternetAccess");
+			expect(body).not.toHaveProperty("autoIdleTimeoutSeconds");
 			expect(body).not.toHaveProperty("envVars");
 			expect(body).not.toHaveProperty("secretRefs");
 		});
@@ -112,6 +123,20 @@ describe("Sandbox", () => {
 				{ name: "BAZ", value: "qux" },
 			]);
 			expect(body.secretRefs).toEqual(["my-secret"]);
+		});
+
+		it("forwards autoIdleTimeoutSeconds", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", status: "Pending" }));
+
+			const sbx = await Sandbox.create("python:3.10", {
+				...defaultConfig,
+				autoIdleTimeoutSeconds: 1800,
+			});
+
+			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			expect(body.autoIdleTimeoutSeconds).toBe(1800);
+			expect(sbx.autoIdleTimeoutSeconds).toBe(1800);
 		});
 	});
 
@@ -455,6 +480,18 @@ describe("Sandbox", () => {
 			expect(sbx.status).toBe(SandboxStatus.Pending);
 		});
 
+		it("resume preserves known autoIdleTimeoutSeconds when response omits it", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockResolvedValueOnce(mockResponse({})); // pause
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Running" }));
+
+			const sbx = await Sandbox.fromPool("pool", { ...defaultConfig, autoIdleTimeoutSeconds: 900 });
+			await sbx.pause();
+			await sbx.resume();
+			expect(sbx.autoIdleTimeoutSeconds).toBe(900);
+		});
+
 		it("pause on killed sandbox throws", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
@@ -463,6 +500,18 @@ describe("Sandbox", () => {
 			const sbx = await Sandbox.fromPool("pool", defaultConfig);
 			await sbx.kill();
 			await expect(sbx.pause()).rejects.toThrow(SandboxError);
+		});
+	});
+
+	describe("refresh", () => {
+		it("preserves known autoIdleTimeoutSeconds when response omits it", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+
+			const sbx = await Sandbox.fromPool("pool", { ...defaultConfig, autoIdleTimeoutSeconds: 900 });
+			await sbx.refresh();
+			expect(sbx.autoIdleTimeoutSeconds).toBe(900);
 		});
 	});
 
@@ -654,6 +703,30 @@ describe("Sandbox", () => {
 				warnSpy.mockRestore();
 			}
 		}, 10000);
+
+		it("waitUntilReady_retries_warmup_gateway_timeout", async () => {
+			const mockFetch = vi.mocked(fetch);
+			// fromPool
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			// refresh: Running
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			// first warmup probe times out at Agent Gateway, second succeeds
+			mockFetch.mockResolvedValueOnce(mockResponse("upstream request timeout", 504));
+			mockFetch.mockImplementationOnce(async (input, init) => {
+				const body = JSON.parse(String(init?.body ?? "{}"));
+				const match = String(body.code ?? "").match(/print\("(__pk_warmup_[a-f0-9]+__)"\)/);
+				return mockResponse({
+					stdout: `${match?.[1] ?? ""}\n`,
+					stderr: "",
+					success: true,
+					durationMs: 5,
+					session_id: "sess-warm",
+				});
+			});
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			await expect(sbx.waitUntilReady(30)).resolves.toBeUndefined();
+		});
 
 		it("waitUntilReady_propagates_runCode_errors_from_probe", async () => {
 			// If runCode itself throws (e.g., backend unreachable), the warmup

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Config, type ConfigOptions } from "../common/config.js";
-import { SandboxError, SandboxTimeoutError } from "../common/errors.js";
+import { ProKubeError, SandboxError, SandboxTimeoutError } from "../common/errors.js";
 import { SandboxClient } from "./client.js";
 import { CodeRunner } from "./code.js";
 import { CommandRunner } from "./commands.js";
@@ -9,6 +9,8 @@ import { type CodeResult, type EnvVar, type ResourceRequests, SandboxStatus } fr
 
 export interface SandboxOptions extends ConfigOptions {
 	volumeSize?: string;
+	/** Per-claim auto-idle override in seconds. Omit to inherit the warm-pool/platform default. */
+	autoIdleTimeoutSeconds?: number;
 }
 
 /**
@@ -22,6 +24,8 @@ export interface SandboxCreateOptions extends SandboxOptions {
 	resources?: ResourceRequests;
 	/** If set, whether the sandbox may reach the public internet. */
 	allowInternetAccess?: boolean;
+	/** Per-sandbox auto-idle override in seconds. Omit to inherit the platform default. */
+	autoIdleTimeoutSeconds?: number;
 	/** Environment variables to inject into the sandbox. */
 	envVars?: EnvVar[];
 	/** Names of Kubernetes secrets to mount/reference in the sandbox. */
@@ -38,6 +42,7 @@ export class Sandbox {
 	private _status: SandboxStatus;
 	private _image: string | undefined;
 	private _pool: string | undefined;
+	private _autoIdleTimeoutSeconds: number | undefined;
 	private _killed = false;
 	private _skipNextWarmup = false;
 
@@ -51,6 +56,7 @@ export class Sandbox {
 		timeout: number,
 		image?: string,
 		pool?: string,
+		autoIdleTimeoutSeconds?: number,
 	) {
 		this._name = name;
 		this._workspace = workspace;
@@ -59,6 +65,7 @@ export class Sandbox {
 		this._timeout = timeout;
 		this._image = image;
 		this._pool = pool;
+		this._autoIdleTimeoutSeconds = autoIdleTimeoutSeconds;
 		this._code = new CodeRunner(client, name);
 		this._commands = new CommandRunner(client, name, timeout);
 		this._files = new FileManager(client, name);
@@ -74,7 +81,11 @@ export class Sandbox {
 		const config = new Config(options);
 		const client = new SandboxClient(config);
 		try {
-			const info = await client.claimFromPool(pool, options.volumeSize);
+			const info = await client.claimFromPool(
+				pool,
+				options.volumeSize,
+				options.autoIdleTimeoutSeconds,
+			);
 			return new Sandbox(
 				info.name,
 				config.workspace,
@@ -83,6 +94,7 @@ export class Sandbox {
 				config.timeout,
 				info.image,
 				pool,
+				info.autoIdleTimeoutSeconds ?? options.autoIdleTimeoutSeconds,
 			);
 		} catch (e) {
 			client.close();
@@ -106,10 +118,20 @@ export class Sandbox {
 				cpu: options.resources?.cpu,
 				memory: options.resources?.memory,
 				allowInternetAccess: options.allowInternetAccess,
+				autoIdleTimeoutSeconds: options.autoIdleTimeoutSeconds,
 				envVars: options.envVars,
 				secretRefs: options.secretRefs,
 			});
-			return new Sandbox(info.name, config.workspace, client, info.status, config.timeout, image);
+			return new Sandbox(
+				info.name,
+				config.workspace,
+				client,
+				info.status,
+				config.timeout,
+				image,
+				info.pool,
+				info.autoIdleTimeoutSeconds ?? options.autoIdleTimeoutSeconds,
+			);
 		} catch (e) {
 			client.close();
 			throw e;
@@ -132,6 +154,7 @@ export class Sandbox {
 				config.timeout,
 				info.image,
 				info.pool,
+				info.autoIdleTimeoutSeconds,
 			);
 		} catch (e) {
 			client.close();
@@ -162,6 +185,7 @@ export class Sandbox {
 							config.timeout,
 							info.image,
 							info.pool,
+							info.autoIdleTimeoutSeconds,
 						),
 				);
 		} finally {
@@ -204,6 +228,10 @@ export class Sandbox {
 		return this._code.getSessionId();
 	}
 
+	get autoIdleTimeoutSeconds(): number | undefined {
+		return this._autoIdleTimeoutSeconds;
+	}
+
 	// ---- Code execution ----
 
 	async runCode(code: string, language = "python", timeout?: number): Promise<CodeResult> {
@@ -230,6 +258,9 @@ export class Sandbox {
 		this._status = info.status;
 		if (info.image) this._image = info.image;
 		if (info.pool) this._pool = info.pool;
+		if (info.autoIdleTimeoutSeconds !== undefined) {
+			this._autoIdleTimeoutSeconds = info.autoIdleTimeoutSeconds;
+		}
 		this._skipNextWarmup = info.resumedFromPool === true;
 		this._code.markSessionInvalid();
 	}
@@ -273,7 +304,8 @@ export class Sandbox {
 	 * can return `success=true` with empty stdout.
 	 *
 	 * Bounded by `deadline`. Never throws on deadline exceeded — logs a
-	 * warning and returns. Propagates any error thrown by `runCode`.
+	 * warning and returns. Transient gateway timeouts during warmup are retried;
+	 * other errors from `runCode` still propagate.
 	 */
 	private async warmupKernel(deadline: number): Promise<void> {
 		this.checkNotKilled();
@@ -304,7 +336,19 @@ export class Sandbox {
 			// a separate concern (HTTP-layer fetch timeout). floor() at
 			// least guarantees probeTimeoutSec * 1000 <= remainingMs.
 			const probeTimeoutSec = Math.min(maxProbeTimeoutSec, Math.floor(remainingMs / 1000));
-			const result = await this.runCode(probeCode, "python", probeTimeoutSec);
+			let result: CodeResult;
+			try {
+				result = await this.runCode(probeCode, "python", probeTimeoutSec);
+			} catch (error) {
+				if (!(error instanceof ProKubeError) || error.statusCode !== 504) {
+					throw error;
+				}
+				this._code.markSessionInvalid();
+				const postErrorRemainingMs = deadline - Date.now();
+				if (postErrorRemainingMs <= 0) break;
+				await sleep(Math.min(probeIntervalMs, postErrorRemainingMs));
+				continue;
+			}
 			if (result.stdout.trim() === marker) return;
 			this._code.markSessionInvalid();
 
@@ -332,6 +376,9 @@ export class Sandbox {
 		this._status = info.status;
 		if (info.image) this._image = info.image;
 		if (info.pool) this._pool = info.pool;
+		if (info.autoIdleTimeoutSeconds !== undefined) {
+			this._autoIdleTimeoutSeconds = info.autoIdleTimeoutSeconds;
+		}
 	}
 
 	// ---- Cleanup helper ----

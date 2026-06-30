@@ -17,13 +17,10 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 20.19.0
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Build SDK
-        run: npm run build
 
       - name: Validate release tag
         if: github.event_name == 'release'
@@ -34,8 +31,8 @@ jobs:
             exit 1
           fi
 
-      - name: Pack release tarball
-        run: mkdir -p ./.artifacts && npm pack --pack-destination ./.artifacts
+      - name: Build, pack, and smoke test npm production install
+        run: npm run smoke:release:npm
 
       - name: Prepare tagged release asset
         if: github.event_name == 'release'
