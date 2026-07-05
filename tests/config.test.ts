@@ -12,6 +12,7 @@ describe("Config", () => {
 		process.env.PROKUBE_API_KEY = undefined;
 		process.env.PROKUBE_TIMEOUT = undefined;
 		process.env.KF_USER = undefined;
+		process.env.KUBERNETES_SERVICE_HOST = undefined;
 	});
 
 	afterEach(() => {
@@ -64,6 +65,25 @@ describe("Config", () => {
 
 	it("throws when api_url is missing", () => {
 		expect(() => new Config({ workspace: "ns" })).toThrow("api_url is required");
+	});
+
+	it("defaults API URL to Agent Gateway in Kubernetes without API key", () => {
+		process.env.KUBERNETES_SERVICE_HOST = "10.0.0.1";
+		const config = new Config({ workspace: "ns" });
+		expect(config.apiUrl).toBe("http://agentgateway-proxy.agentgateway-system.svc.cluster.local");
+		expect(config.useApiKey).toBe(false);
+	});
+
+	it("does not default API URL in Kubernetes when API key is set", () => {
+		process.env.KUBERNETES_SERVICE_HOST = "10.0.0.1";
+		expect(() => new Config({ workspace: "ns", apiKey: "key" })).toThrow("api_url is required");
+	});
+
+	it("allows in-cluster config without SDK auth credentials", () => {
+		process.env.KUBERNETES_SERVICE_HOST = "10.0.0.1";
+		const config = new Config({ workspace: "ns" });
+		expect(config.apiKey).toBeUndefined();
+		expect(config.userId).toBeUndefined();
 	});
 
 	it("throws when workspace is missing", () => {

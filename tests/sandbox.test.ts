@@ -17,11 +17,21 @@ const defaultConfig = {
 };
 
 describe("Sandbox", () => {
+	const originalEnv = process.env;
+
 	beforeEach(() => {
+		process.env = { ...originalEnv };
+		process.env.PROKUBE_API_URL = undefined;
+		process.env.PROKUBE_WORKSPACE = undefined;
+		process.env.PROKUBE_USER_ID = undefined;
+		process.env.PROKUBE_API_KEY = undefined;
+		process.env.KF_USER = undefined;
+		process.env.KUBERNETES_SERVICE_HOST = undefined;
 		vi.stubGlobal("fetch", vi.fn());
 	});
 
 	afterEach(() => {
+		process.env = originalEnv;
 		vi.restoreAllMocks();
 	});
 
@@ -33,6 +43,24 @@ describe("Sandbox", () => {
 			const sbx = await Sandbox.fromPool("gpu-pool", defaultConfig);
 			expect(sbx.name).toBe("sb-pool-1");
 			expect(sbx.status).toBe(SandboxStatus.Running);
+		});
+
+		it("claims from Agent Gateway in Kubernetes without SDK auth", async () => {
+			process.env.KUBERNETES_SERVICE_HOST = "10.0.0.1";
+			process.env.PROKUBE_WORKSPACE = "test-ns";
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ name: "sb-pool-1", status: "Running" }));
+
+			const sbx = await Sandbox.fromPool("gpu-pool");
+
+			const url = mockFetch.mock.calls[0][0] as string;
+			const headers = mockFetch.mock.calls[0][1]?.headers as Record<string, string>;
+			expect(sbx.name).toBe("sb-pool-1");
+			expect(url).toBe(
+				"http://agentgateway-proxy.agentgateway-system.svc.cluster.local/_platform/sandbox/test-ns/sandboxes/claim",
+			);
+			expect(headers["x-api-key"]).toBeUndefined();
+			expect(headers["kubeflow-userid"]).toBeUndefined();
 		});
 
 		it("sends volumeSize when provided", async () => {

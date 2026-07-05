@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getAuthHeaders } from "../src/common/auth.js";
 import { Config } from "../src/common/config.js";
-import { AuthenticationError } from "../src/common/errors.js";
 
 describe("getAuthHeaders", () => {
 	it("returns x-api-key header when api_key is set", () => {
@@ -34,15 +33,11 @@ describe("getAuthHeaders", () => {
 		expect(getAuthHeaders(config)).toEqual({ "x-api-key": "my-key" });
 	});
 
-	it("throws AuthenticationError when no credentials", () => {
+	it("returns no auth headers when no credentials are configured", () => {
 		const config = new Config({
 			apiUrl: "https://example.com",
 			workspace: "ns",
-			userId: "placeholder",
 		});
-		// Manually remove userId to simulate missing credentials
-		Object.defineProperty(config, "userId", { value: undefined });
-		Object.defineProperty(config, "apiKey", { value: undefined });
-		expect(() => getAuthHeaders(config)).toThrow(AuthenticationError);
+		expect(getAuthHeaders(config)).toEqual({});
 	});
 });

@@ -18,7 +18,7 @@ export class PoolClient {
 		if (this.http.config.useApiKey) {
 			return `/sandbox/${this.workspace}/sandbox-pools`;
 		}
-		return `/api/namespaces/${this.workspace}/sandbox-pools`;
+		return `/_platform/sandbox/${this.workspace}/sandbox-pools`;
 	}
 
 	private poolPath(name: string): string {

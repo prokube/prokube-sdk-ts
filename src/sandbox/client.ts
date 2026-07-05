@@ -42,7 +42,7 @@ export class SandboxClient {
 		if (this.http.config.useApiKey) {
 			return `/sandbox/${this.workspace}/sandboxes`;
 		}
-		return `/api/namespaces/${this.workspace}/sandboxes`;
+		return `/_platform/sandbox/${this.workspace}/sandboxes`;
 	}
 
 	private sandboxPath(name: string): string {

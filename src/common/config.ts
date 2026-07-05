@@ -6,6 +6,9 @@ export interface ConfigOptions {
 	timeout?: number;
 }
 
+const IN_CLUSTER_AGENT_GATEWAY_URL =
+	"http://agentgateway-proxy.agentgateway-system.svc.cluster.local";
+
 export class Config {
 	readonly apiUrl: string;
 	readonly workspace: string;
@@ -14,7 +17,13 @@ export class Config {
 	readonly timeout: number;
 
 	constructor(options: ConfigOptions = {}) {
-		const apiUrl = options.apiUrl ?? process.env.PROKUBE_API_URL;
+		this.apiKey = emptyToUndefined(options.apiKey ?? process.env.PROKUBE_API_KEY);
+		const apiUrl =
+			options.apiUrl ??
+			process.env.PROKUBE_API_URL ??
+			(this.apiKey == null && process.env.KUBERNETES_SERVICE_HOST
+				? IN_CLUSTER_AGENT_GATEWAY_URL
+				: undefined);
 		const workspace = options.workspace ?? process.env.PROKUBE_WORKSPACE;
 
 		if (!apiUrl) {
@@ -30,7 +39,6 @@ export class Config {
 
 		this.apiUrl = apiUrl.replace(/\/+$/, "");
 		this.workspace = workspace;
-		this.apiKey = emptyToUndefined(options.apiKey ?? process.env.PROKUBE_API_KEY);
 		this.userId = emptyToUndefined(
 			options.userId ?? process.env.PROKUBE_USER_ID ?? process.env.KF_USER,
 		);
