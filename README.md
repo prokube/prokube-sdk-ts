@@ -106,14 +106,15 @@ Configuration can be provided via environment variables or explicitly.
 ```bash
 export PROKUBE_API_URL=https://prokube.ai/pkui  # Can include path prefix
 export PROKUBE_WORKSPACE=my-workspace
-export PROKUBE_USER_ID=user@example.com  # Required if no API key (or KF_USER)
+export PROKUBE_API_KEY=your-api-key  # Required for external access
 export PROKUBE_TIMEOUT=300  # Optional, default 300 seconds
 ```
 
-**Note:** Authentication requires one of: `PROKUBE_API_KEY`, `PROKUBE_USER_ID`, or
-`KF_USER` (precedence in that order). `PROKUBE_API_KEY` enables external access;
-`PROKUBE_USER_ID` and `KF_USER` are for in-cluster usage. If none are set, you must
-pass `apiKey` or `userId` explicitly when creating a Sandbox.
+**Note:** `PROKUBE_API_KEY` enables external access and routes requests to the
+external `/sandbox/{workspace}/...` endpoints. In Kubernetes, if no API key and
+no `PROKUBE_API_URL` are configured, the SDK defaults to the in-cluster Agent
+Gateway service and routes sandbox requests to `/_platform/sandbox/{workspace}/...`.
+Outside Kubernetes, `PROKUBE_API_URL` is still required.
 
 ### Explicit Configuration
 
@@ -123,8 +124,29 @@ import { Sandbox } from "prokube";
 const sbx = await Sandbox.fromPool("python-pool", {
   apiUrl: "https://prokube.ai/pkui",
   workspace: "my-workspace",
-  userId: "user@example.com",
+  apiKey: "your-api-key",
 });
+```
+
+### In-Cluster / Notebook Usage
+
+Inside a Kubernetes notebook or workload, configure only the workspace when you
+do not need external API-key access. The SDK detects Kubernetes via
+`KUBERNETES_SERVICE_HOST`, uses the in-cluster Agent Gateway service, and sends
+no SDK auth headers unless you explicitly provide `PROKUBE_USER_ID`, `KF_USER`,
+or `apiKey`.
+
+```bash
+export PROKUBE_WORKSPACE=my-workspace
+```
+
+```typescript
+import { Sandbox } from "prokube";
+
+const sbx = await Sandbox.fromPool("python-pool");
+const result = await sbx.runCode("print('Hello from inside the cluster!')");
+console.log(result.stdout);
+await sbx.kill();
 ```
 
 ### External Access (API Key)

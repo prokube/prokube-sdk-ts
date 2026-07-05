@@ -30,7 +30,7 @@ describe("SandboxClient", () => {
 	});
 
 	describe("path routing", () => {
-		it("uses internal paths for user_id auth", async () => {
+		it("uses Agent Gateway platform paths for no-api-key auth", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValue(mockResponse({ sandboxes: [], total: 0 }));
 
@@ -38,7 +38,21 @@ describe("SandboxClient", () => {
 			await client.list();
 
 			const url = mockFetch.mock.calls[0][0] as string;
-			expect(url).toContain("/api/namespaces/test-ns/sandboxes");
+			expect(url).toContain("/_platform/sandbox/test-ns/sandboxes");
+		});
+
+		it("uses Agent Gateway platform paths without auth headers", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ sandboxes: [], total: 0 }));
+
+			const client = new SandboxClient(makeConfig({ userId: undefined }));
+			await client.list();
+
+			const url = mockFetch.mock.calls[0][0] as string;
+			const headers = mockFetch.mock.calls[0][1]?.headers as Record<string, string>;
+			expect(url).toContain("/_platform/sandbox/test-ns/sandboxes");
+			expect(headers["x-api-key"]).toBeUndefined();
+			expect(headers["kubeflow-userid"]).toBeUndefined();
 		});
 
 		it("uses external paths for api_key auth", async () => {

@@ -106,6 +106,19 @@ describe("HttpClient", () => {
 		expect(headers["kubeflow-userid"]).toBe("user@test.com");
 	});
 
+	it("does not require SDK auth headers without api_key or user_id", async () => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }));
+
+		const client = new HttpClient(makeConfig({ userId: undefined }));
+		await client.get("/_platform/sandbox/ns/sandboxes");
+
+		const headers = mockFetch.mock.calls[0][1]?.headers as Record<string, string>;
+		expect(headers["x-api-key"]).toBeUndefined();
+		expect(headers["kubeflow-userid"]).toBeUndefined();
+		expect(headers["content-type"]).toBe("application/json");
+	});
+
 	it("uses origin-only base URL for API key auth", async () => {
 		const mockFetch = vi.mocked(fetch);
 		mockFetch.mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }));
@@ -118,14 +131,14 @@ describe("HttpClient", () => {
 		expect(url).not.toContain("/pkui");
 	});
 
-	it("preserves path prefix for internal auth", async () => {
+	it("preserves path prefix for no-api-key access", async () => {
 		const mockFetch = vi.mocked(fetch);
 		mockFetch.mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }));
 
 		const client = new HttpClient(makeConfig());
-		await client.get("/api/namespaces/ns/sandboxes");
+		await client.get("/_platform/sandbox/ns/sandboxes");
 
 		const url = mockFetch.mock.calls[0][0] as string;
-		expect(url).toBe("https://example.com/pkui/api/namespaces/ns/sandboxes");
+		expect(url).toBe("https://example.com/pkui/_platform/sandbox/ns/sandboxes");
 	});
 });
