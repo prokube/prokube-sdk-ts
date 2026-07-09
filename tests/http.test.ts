@@ -142,6 +142,36 @@ describe("HttpClient", () => {
 		await expect(client.post("/claim", {})).rejects.toThrow(PoolExhaustedError);
 	});
 
+	it("supports FastAPI nested detail pool exhaustion responses", async () => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					detail: {
+						reason: "pool_exhausted",
+						message: "Warm pool has no ready capacity.",
+						poolName: "python-pool",
+					},
+				}),
+				{
+					status: 429,
+					headers: { "content-type": "application/json", "retry-after": "1" },
+				},
+			),
+		);
+
+		const client = new HttpClient(makeConfig());
+		try {
+			await client.post("/claim", { poolName: "python-pool" });
+			throw new Error("Expected PoolExhaustedError");
+		} catch (error) {
+			expect(error).toBeInstanceOf(PoolExhaustedError);
+			const poolError = error as PoolExhaustedError;
+			expect(poolError.reason).toBe("pool_exhausted");
+			expect(poolError.retryAfter).toBe("1");
+		}
+	});
+
 	it("includes kubeflow-userid header for internal auth", async () => {
 		const mockFetch = vi.mocked(fetch);
 		mockFetch.mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }));

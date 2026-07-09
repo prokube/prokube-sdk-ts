@@ -105,7 +105,12 @@ export class HttpClient {
 		} catch {
 			detail = response.statusText;
 		}
-		const reason = stringValue(body.reason) ?? stringValue(body.error);
+		const detailBody = objectValue(body.detail);
+		const reason =
+			stringValue(body.reason) ??
+			stringValue(body.error) ??
+			stringValue(detailBody?.reason) ??
+			stringValue(detailBody?.error);
 
 		if (response.status === 429 && reason === "pool_exhausted") {
 			throw new PoolExhaustedError(
@@ -128,4 +133,10 @@ export class HttpClient {
 
 function stringValue(value: unknown): string | undefined {
 	return typeof value === "string" ? value : undefined;
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+	return value && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: undefined;
 }
