@@ -277,6 +277,12 @@ ProKubeError (base)
 │   └── PoolExhaustedError
 ```
 
+`Sandbox.fromPool()` rejects with `PoolExhaustedError` when the backend returns
+HTTP 429 with `reason` or `error` set to `pool_exhausted`. Treat this as
+retryable backpressure: no warm pool capacity is currently available. The error
+has `statusCode: 429`, `reason: "pool_exhausted"`, and preserves the optional
+`Retry-After` response header as `retryAfter`.
+
 ## Development
 
 ```bash

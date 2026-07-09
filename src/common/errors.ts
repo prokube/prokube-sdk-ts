@@ -85,8 +85,12 @@ export class PoolNotFoundError extends SandboxError {
  * Raised when no sandboxes are available in the warm pool.
  */
 export class PoolExhaustedError extends SandboxError {
-	constructor(message: string) {
-		super(message);
+	readonly reason = "pool_exhausted";
+	readonly retryAfter: string | undefined;
+
+	constructor(message: string, retryAfter?: string) {
+		super(message, 429);
 		this.name = "PoolExhaustedError";
+		this.retryAfter = retryAfter;
 	}
 }
