@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Config } from "../src/common/config.js";
-import { AuthenticationError, NotFoundError, ProKubeError } from "../src/common/errors.js";
+import {
+	AuthenticationError,
+	NotFoundError,
+	PoolExhaustedError,
+	ProKubeError,
+} from "../src/common/errors.js";
 import { HttpClient } from "../src/common/http.js";
 
 function makeConfig(overrides: Partial<{ apiKey: string; userId: string }> = {}): Config {
@@ -93,6 +98,79 @@ describe("HttpClient", () => {
 
 		const client = new HttpClient(makeConfig());
 		await expect(client.get("/api/secure")).rejects.toThrow(AuthenticationError);
+	});
+
+	it("throws PoolExhaustedError for retryable pool exhaustion", async () => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					reason: "pool_exhausted",
+					detail: "No warm pool capacity is currently available",
+				}),
+				{
+					status: 429,
+					headers: { "content-type": "application/json", "retry-after": "10" },
+				},
+			),
+		);
+
+		const client = new HttpClient(makeConfig());
+		try {
+			await client.post("/_platform/sandbox/test-ns/sandboxes/claim", { poolName: "pool" });
+			throw new Error("Expected PoolExhaustedError");
+		} catch (error) {
+			expect(error).toBeInstanceOf(PoolExhaustedError);
+			const poolError = error as PoolExhaustedError;
+			expect(poolError.statusCode).toBe(429);
+			expect(poolError.reason).toBe("pool_exhausted");
+			expect(poolError.retryAfter).toBe("10");
+			expect(poolError.message).toContain("No warm pool capacity");
+		}
+	});
+
+	it("supports pool exhaustion responses using error field", async () => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(
+			new Response(JSON.stringify({ error: "pool_exhausted", message: "Pool is empty" }), {
+				status: 429,
+				headers: { "content-type": "application/json" },
+			}),
+		);
+
+		const client = new HttpClient(makeConfig());
+		await expect(client.post("/claim", {})).rejects.toThrow(PoolExhaustedError);
+	});
+
+	it("supports FastAPI nested detail pool exhaustion responses", async () => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					detail: {
+						reason: "pool_exhausted",
+						message: "Warm pool has no ready capacity.",
+						poolName: "python-pool",
+					},
+				}),
+				{
+					status: 429,
+					headers: { "content-type": "application/json", "retry-after": "1" },
+				},
+			),
+		);
+
+		const client = new HttpClient(makeConfig());
+		try {
+			await client.post("/claim", { poolName: "python-pool" });
+			throw new Error("Expected PoolExhaustedError");
+		} catch (error) {
+			expect(error).toBeInstanceOf(PoolExhaustedError);
+			const poolError = error as PoolExhaustedError;
+			expect(poolError.reason).toBe("pool_exhausted");
+			expect(poolError.retryAfter).toBe("1");
+			expect(poolError.message).toContain("Warm pool has no ready capacity");
+		}
 	});
 
 	it("includes kubeflow-userid header for internal auth", async () => {

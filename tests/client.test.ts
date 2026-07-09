@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Config } from "../src/common/config.js";
-import { SandboxError } from "../src/common/errors.js";
+import { PoolExhaustedError, SandboxError } from "../src/common/errors.js";
 import { SandboxClient } from "../src/sandbox/client.js";
 import { SandboxStatus } from "../src/sandbox/models.js";
 
@@ -102,6 +102,33 @@ describe("SandboxClient", () => {
 
 			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
 			expect(body.autoIdleTimeoutSeconds).toBe(900);
+		});
+
+		it("throws PoolExhaustedError for retryable 429 pool exhaustion", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(
+				new Response(
+					JSON.stringify({
+						reason: "pool_exhausted",
+						detail: "No warm pool capacity is currently available",
+					}),
+					{
+						status: 429,
+						headers: { "content-type": "application/json", "retry-after": "15" },
+					},
+				),
+			);
+
+			const client = new SandboxClient(makeConfig());
+			try {
+				await client.claimFromPool("pool");
+				throw new Error("Expected PoolExhaustedError");
+			} catch (error) {
+				expect(error).toBeInstanceOf(PoolExhaustedError);
+				const poolError = error as PoolExhaustedError;
+				expect(poolError.reason).toBe("pool_exhausted");
+				expect(poolError.retryAfter).toBe("15");
+			}
 		});
 	});
 

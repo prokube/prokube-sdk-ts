@@ -57,6 +57,10 @@ describe("Error hierarchy", () => {
 	});
 
 	it("PoolExhaustedError inherits from SandboxError", () => {
-		expect(new PoolExhaustedError("exhausted")).toBeInstanceOf(SandboxError);
+		const err = new PoolExhaustedError("exhausted", "5");
+		expect(err).toBeInstanceOf(SandboxError);
+		expect(err.statusCode).toBe(429);
+		expect(err.reason).toBe("pool_exhausted");
+		expect(err.retryAfter).toBe("5");
 	});
 });

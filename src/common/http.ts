@@ -1,6 +1,13 @@
 import { getAuthHeaders } from "./auth.js";
 import type { Config } from "./config.js";
-import { AuthenticationError, NotFoundError, ProKubeError } from "./errors.js";
+import { AuthenticationError, NotFoundError, PoolExhaustedError, ProKubeError } from "./errors.js";
+
+interface ErrorResponseBody {
+	detail?: unknown;
+	error?: unknown;
+	message?: unknown;
+	reason?: unknown;
+}
 
 export class HttpClient {
 	readonly config: Config;
@@ -90,12 +97,31 @@ export class HttpClient {
 	private async handleError(response: Response): Promise<void> {
 		if (response.ok) return;
 
+		let body: ErrorResponseBody = {};
 		let detail: string;
 		try {
-			const data = (await response.json()) as { detail?: string };
-			detail = data.detail ?? response.statusText;
+			body = (await response.json()) as ErrorResponseBody;
+			const detailBody = objectValue(body.detail);
+			detail =
+				stringValue(body.detail) ??
+				stringValue(body.message) ??
+				stringValue(detailBody?.message) ??
+				response.statusText;
 		} catch {
 			detail = response.statusText;
+		}
+		const detailBody = objectValue(body.detail);
+		const reason =
+			stringValue(body.reason) ??
+			stringValue(body.error) ??
+			stringValue(detailBody?.reason) ??
+			stringValue(detailBody?.error);
+
+		if (response.status === 429 && reason === "pool_exhausted") {
+			throw new PoolExhaustedError(
+				detail || "No warm pool capacity is currently available; retry the claim later.",
+				response.headers.get("retry-after") ?? undefined,
+			);
 		}
 
 		const message = `HTTP ${response.status}: ${detail}`;
@@ -108,4 +134,14 @@ export class HttpClient {
 		}
 		throw new ProKubeError(message, response.status);
 	}
+}
+
+function stringValue(value: unknown): string | undefined {
+	return typeof value === "string" ? value : undefined;
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+	return value && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: undefined;
 }
