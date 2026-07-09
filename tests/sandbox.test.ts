@@ -594,6 +594,77 @@ describe("Sandbox", () => {
 			await expect(sbx.waitUntilReady(5)).rejects.toThrow(SandboxError);
 		});
 
+		it("times out while sandbox remains Pending", async () => {
+			vi.useFakeTimers();
+			vi.setSystemTime(0);
+
+			try {
+				const mockFetch = vi.mocked(fetch);
+				mockFetch.mockImplementation(async () => mockResponse({ name: "sb-1", status: "Pending" }));
+
+				const sbx = await Sandbox.create("img", { ...defaultConfig, name: "sb-1" });
+				const wait = sbx.waitUntilReady(3);
+				const assertion = expect(wait).rejects.toThrow(
+					"Sandbox 'sb-1' did not become ready within 3s (last phase: Pending)",
+				);
+
+				await vi.advanceTimersByTimeAsync(3000);
+				await assertion;
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("uses one timeout budget after resume returns Pending", async () => {
+			vi.useFakeTimers();
+			vi.setSystemTime(0);
+
+			try {
+				const mockFetch = vi.mocked(fetch);
+				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+				mockFetch.mockResolvedValueOnce(mockResponse({})); // pause
+				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Pending" }));
+				mockFetch.mockImplementation(async () => mockResponse({ name: "sb-1", status: "Pending" }));
+
+				const sbx = await Sandbox.fromPool("pool", defaultConfig);
+				await sbx.pause();
+				await sbx.resume();
+				const wait = sbx.waitUntilReady(3);
+				const assertion = expect(wait).rejects.toThrow(
+					"Sandbox 'sb-1' did not become ready within 3s (last phase: Pending)",
+				);
+
+				await vi.advanceTimersByTimeAsync(3000);
+				await assertion;
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("becomes ready when Pending transitions to Running before timeout", async () => {
+			vi.useFakeTimers();
+			vi.setSystemTime(0);
+
+			try {
+				const mockFetch = vi.mocked(fetch);
+				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Pending" }));
+				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Pending" }));
+				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+				mockFetch.mockImplementationOnce(async (_url, init) =>
+					probeRespond((init as RequestInit).body as string),
+				);
+
+				const sbx = await Sandbox.create("img", { ...defaultConfig, name: "sb-1" });
+				const wait = sbx.waitUntilReady(5);
+
+				await vi.advanceTimersByTimeAsync(2000);
+				await expect(wait).resolves.toBeUndefined();
+				expect(sbx.status).toBe(SandboxStatus.Running);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
 		it("waitUntilReady_warms_kernel_on_cold_start", async () => {
 			const mockFetch = vi.mocked(fetch);
 			// create (Pending)

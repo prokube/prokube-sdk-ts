@@ -292,7 +292,7 @@ export class Sandbox {
 		}
 
 		throw new SandboxTimeoutError(
-			`Sandbox '${this._name}' did not become ready within ${effectiveTimeout}s`,
+			`Sandbox '${this._name}' did not become ready within ${effectiveTimeout}s (last phase: ${this._status})`,
 		);
 	}
 
