@@ -169,6 +169,7 @@ describe("HttpClient", () => {
 			const poolError = error as PoolExhaustedError;
 			expect(poolError.reason).toBe("pool_exhausted");
 			expect(poolError.retryAfter).toBe("1");
+			expect(poolError.message).toContain("Warm pool has no ready capacity");
 		}
 	});
 

@@ -101,7 +101,12 @@ export class HttpClient {
 		let detail: string;
 		try {
 			body = (await response.json()) as ErrorResponseBody;
-			detail = stringValue(body.detail) ?? stringValue(body.message) ?? response.statusText;
+			const detailBody = objectValue(body.detail);
+			detail =
+				stringValue(body.detail) ??
+				stringValue(body.message) ??
+				stringValue(detailBody?.message) ??
+				response.statusText;
 		} catch {
 			detail = response.statusText;
 		}
