@@ -16,6 +16,8 @@ import {
 	type FileInfo,
 	type FileWriteInput,
 	type SandboxInfo,
+	type SandboxInfoPage,
+	type SandboxLifecycle,
 	SandboxStatus,
 	parseBatchFileWriteResponse,
 	parseCodeResult,
@@ -118,6 +120,35 @@ export class SandboxClient {
 		const data = (await this.http.get(this.sandboxesPath())) as Record<string, unknown>;
 		const sandboxes = (data.sandboxes ?? []) as Record<string, unknown>[];
 		return sandboxes.map((s) => parseSandboxInfo(s, this.workspace));
+	}
+
+	async listPage(
+		options: {
+			lifecycle?: SandboxLifecycle;
+			limit?: number;
+			continueToken?: string;
+		} = {},
+	): Promise<SandboxInfoPage> {
+		const lifecycle = options.lifecycle ?? "active";
+		const limit = options.limit ?? 25;
+		if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+			throw new RangeError("limit must be an integer between 1 and 100");
+		}
+
+		const params: Record<string, string> = {
+			limit: String(limit),
+			lifecycle,
+		};
+		if (options.continueToken) params.continueToken = options.continueToken;
+		const data = (await this.http.get(this.sandboxesPath(), params)) as Record<string, unknown>;
+		const rawSandboxes = (data.sandboxes ?? []) as Record<string, unknown>[];
+		const sandboxes = rawSandboxes.map((sandbox) => parseSandboxInfo(sandbox, this.workspace));
+		return {
+			sandboxes,
+			loaded: typeof data.loaded === "number" ? data.loaded : sandboxes.length,
+			hasMore: data.hasMore === true,
+			continueToken: typeof data.continueToken === "string" ? data.continueToken : undefined,
+		};
 	}
 
 	async get(name: string): Promise<SandboxInfo> {

@@ -188,6 +188,23 @@ API endpoints.
 
 The main class for interacting with sandboxes.
 
+Paginate large sandbox collections without loading the full workspace history:
+
+```typescript
+let page = await Sandbox.listPage({ lifecycle: "inactive", limit: 10 });
+for (const sandbox of page.sandboxes) {
+	console.log(sandbox.name);
+}
+
+if (page.hasMore) {
+	page = await Sandbox.listPage({
+		lifecycle: "inactive",
+		limit: 10,
+		continueToken: page.continueToken,
+	});
+}
+```
+
 ```typescript
 class Sandbox {
   name: string;       // Sandbox name

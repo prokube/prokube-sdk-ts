@@ -2,6 +2,8 @@ export {
 	Sandbox,
 	type SandboxOptions,
 	type SandboxCreateOptions,
+	type SandboxPage,
+	type SandboxPageOptions,
 } from "./sandbox/sandbox.js";
 export { SandboxPool, type CreatePoolOptions } from "./sandbox/pool.js";
 export { SandboxClient } from "./sandbox/client.js";
@@ -12,6 +14,8 @@ export { FileManager } from "./sandbox/files.js";
 export {
 	SandboxStatus,
 	type SandboxInfo,
+	type SandboxInfoPage,
+	type SandboxLifecycle,
 	type PoolInfo,
 	type CreateSandboxRequest,
 	type CreatePoolRequest,

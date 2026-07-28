@@ -264,6 +264,31 @@ describe("Sandbox", () => {
 			expect(result).toHaveLength(2);
 			expect(result.every((s) => s.status === SandboxStatus.Paused)).toBe(true);
 		});
+
+		it("returns one page of ready-to-use sandboxes", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(
+				mockResponse({
+					sandboxes: [{ name: "paused-1", status: "Paused" }],
+					loaded: 1,
+					hasMore: true,
+					continueToken: "next-token",
+				}),
+			);
+
+			const page = await Sandbox.listPage({
+				...defaultConfig,
+				lifecycle: "inactive",
+				limit: 10,
+			});
+
+			expect(page.sandboxes).toHaveLength(1);
+			expect(page.sandboxes[0].name).toBe("paused-1");
+			expect(page.sandboxes[0].status).toBe(SandboxStatus.Paused);
+			expect(page.loaded).toBe(1);
+			expect(page.hasMore).toBe(true);
+			expect(page.continueToken).toBe("next-token");
+		});
 	});
 
 	describe("runCode", () => {
