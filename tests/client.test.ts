@@ -284,6 +284,18 @@ describe("SandboxClient", () => {
 				"limit must be an integer between 1 and 100",
 			);
 		});
+
+		it("forwards an explicitly provided empty continuation token", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ sandboxes: [], loaded: 0, hasMore: false }));
+
+			const client = new SandboxClient(makeConfig());
+			await client.listPage({ continueToken: "" });
+
+			const url = new URL(mockFetch.mock.calls[0][0] as string);
+			expect(url.searchParams.has("continueToken")).toBe(true);
+			expect(url.searchParams.get("continueToken")).toBe("");
+		});
 	});
 
 	describe("pause/resume", () => {

@@ -139,7 +139,7 @@ export class SandboxClient {
 			limit: String(limit),
 			lifecycle,
 		};
-		if (options.continueToken) params.continueToken = options.continueToken;
+		if (options.continueToken !== undefined) params.continueToken = options.continueToken;
 		const data = (await this.http.get(this.sandboxesPath(), params)) as Record<string, unknown>;
 		const rawSandboxes = (data.sandboxes ?? []) as Record<string, unknown>[];
 		const sandboxes = rawSandboxes.map((sandbox) => parseSandboxInfo(sandbox, this.workspace));
