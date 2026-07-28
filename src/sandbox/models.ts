@@ -19,6 +19,15 @@ export interface SandboxInfo {
 	resumedFromPool?: boolean;
 }
 
+export type SandboxLifecycle = "active" | "inactive";
+
+export interface SandboxInfoPage {
+	sandboxes: SandboxInfo[];
+	loaded: number;
+	hasMore: boolean;
+	continueToken?: string;
+}
+
 export interface CodeResult {
 	stdout: string;
 	stderr: string;

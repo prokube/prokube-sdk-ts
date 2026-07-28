@@ -248,6 +248,54 @@ describe("SandboxClient", () => {
 			expect(result[1].name).toBe("sb-2");
 			expect(result[1].status).toBe(SandboxStatus.Paused);
 		});
+
+		it("lists one page and preserves pagination metadata", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(
+				mockResponse({
+					sandboxes: [{ name: "paused-1", phase: "Paused" }],
+					loaded: 1,
+					hasMore: true,
+					continueToken: "next-token",
+				}),
+			);
+
+			const client = new SandboxClient(makeConfig());
+			const page = await client.listPage({
+				lifecycle: "inactive",
+				limit: 10,
+				continueToken: "opaque-token",
+			});
+
+			expect(page.sandboxes[0].name).toBe("paused-1");
+			expect(page.sandboxes[0].status).toBe(SandboxStatus.Paused);
+			expect(page.loaded).toBe(1);
+			expect(page.hasMore).toBe(true);
+			expect(page.continueToken).toBe("next-token");
+			const url = new URL(mockFetch.mock.calls[0][0] as string);
+			expect(url.searchParams.get("limit")).toBe("10");
+			expect(url.searchParams.get("lifecycle")).toBe("inactive");
+			expect(url.searchParams.get("continueToken")).toBe("opaque-token");
+		});
+
+		it("validates the page limit", async () => {
+			const client = new SandboxClient(makeConfig());
+			await expect(client.listPage({ limit: 101 })).rejects.toThrow(
+				"limit must be an integer between 1 and 100",
+			);
+		});
+
+		it("forwards an explicitly provided empty continuation token", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ sandboxes: [], loaded: 0, hasMore: false }));
+
+			const client = new SandboxClient(makeConfig());
+			await client.listPage({ continueToken: "" });
+
+			const url = new URL(mockFetch.mock.calls[0][0] as string);
+			expect(url.searchParams.has("continueToken")).toBe(true);
+			expect(url.searchParams.get("continueToken")).toBe("");
+		});
 	});
 
 	describe("pause/resume", () => {

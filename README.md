@@ -188,6 +188,29 @@ API endpoints.
 
 The main class for interacting with sandboxes.
 
+Paginate large sandbox collections without loading the full workspace history:
+
+- `active` (default): user sandboxes in `Running` or `Pending` phase.
+- `inactive`: user sandboxes in `Paused`, `Succeeded`, or `Failed` phase.
+
+Idle warm-pool capacity is internal infrastructure and is excluded from both
+lifecycles.
+
+```typescript
+let page = await Sandbox.listPage({ lifecycle: "inactive", limit: 10 });
+for (const sandbox of page.sandboxes) {
+	console.log(sandbox.name);
+}
+
+if (page.hasMore) {
+	page = await Sandbox.listPage({
+		lifecycle: "inactive",
+		limit: 10,
+		continueToken: page.continueToken,
+	});
+}
+```
+
 ```typescript
 class Sandbox {
   name: string;       // Sandbox name

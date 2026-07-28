@@ -5,7 +5,13 @@ import { SandboxClient } from "./client.js";
 import { CodeRunner } from "./code.js";
 import { CommandRunner } from "./commands.js";
 import { FileManager } from "./files.js";
-import { type CodeResult, type EnvVar, type ResourceRequests, SandboxStatus } from "./models.js";
+import {
+	type CodeResult,
+	type EnvVar,
+	type ResourceRequests,
+	type SandboxLifecycle,
+	SandboxStatus,
+} from "./models.js";
 
 export interface SandboxOptions extends ConfigOptions {
 	volumeSize?: string;
@@ -30,6 +36,19 @@ export interface SandboxCreateOptions extends SandboxOptions {
 	envVars?: EnvVar[];
 	/** Names of Kubernetes secrets to mount/reference in the sandbox. */
 	secretRefs?: string[];
+}
+
+export interface SandboxPageOptions extends ConfigOptions {
+	lifecycle?: SandboxLifecycle;
+	limit?: number;
+	continueToken?: string;
+}
+
+export interface SandboxPage {
+	sandboxes: Sandbox[];
+	loaded: number;
+	hasMore: boolean;
+	continueToken?: string;
 }
 
 export class Sandbox {
@@ -188,6 +207,40 @@ export class Sandbox {
 							info.autoIdleTimeoutSeconds,
 						),
 				);
+		} finally {
+			client.close();
+		}
+	}
+
+	/**
+	 * List one bounded page of active or inactive sandboxes.
+	 *
+	 * Reuse the opaque continuation token with the same lifecycle and limit to
+	 * fetch the next page.
+	 */
+	static async listPage(options: SandboxPageOptions = {}): Promise<SandboxPage> {
+		const config = new Config(options);
+		const client = new SandboxClient(config);
+		try {
+			const page = await client.listPage(options);
+			return {
+				sandboxes: page.sandboxes.map(
+					(info) =>
+						new Sandbox(
+							info.name,
+							config.workspace,
+							new SandboxClient(config),
+							info.status,
+							config.timeout,
+							info.image,
+							info.pool,
+							info.autoIdleTimeoutSeconds,
+						),
+				),
+				loaded: page.loaded,
+				hasMore: page.hasMore,
+				continueToken: page.continueToken,
+			};
 		} finally {
 			client.close();
 		}
