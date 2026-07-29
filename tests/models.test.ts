@@ -59,6 +59,8 @@ describe("parseSandboxInfo", () => {
 				image: "python:3.10",
 				poolName: "gpu-pool",
 				createdAt: "2025-01-01T00:00:00Z",
+				claimName: "claim-123",
+				claimedAt: "2025-01-02T00:00:00Z",
 				autoIdleTimeoutSeconds: 1800,
 				resumedFromPool: true,
 			},
@@ -68,6 +70,8 @@ describe("parseSandboxInfo", () => {
 		expect(info.image).toBe("python:3.10");
 		expect(info.pool).toBe("gpu-pool");
 		expect(info.createdAt).toBe("2025-01-01T00:00:00Z");
+		expect(info.claimName).toBe("claim-123");
+		expect(info.claimedAt).toBe("2025-01-02T00:00:00Z");
 		expect(info.autoIdleTimeoutSeconds).toBe(1800);
 		expect(info.resumedFromPool).toBe(true);
 	});
@@ -79,6 +83,8 @@ describe("parseSandboxInfo", () => {
 				phase: "Paused",
 				pool: "cpu-pool",
 				created_at: "2025-06-01",
+				claim_name: "claim-alt",
+				claimed_at: "2025-06-02",
 				auto_idle_timeout_seconds: 900,
 			},
 			"ns",
@@ -87,6 +93,8 @@ describe("parseSandboxInfo", () => {
 		expect(info.status).toBe(SandboxStatus.Paused);
 		expect(info.pool).toBe("cpu-pool");
 		expect(info.createdAt).toBe("2025-06-01");
+		expect(info.claimName).toBe("claim-alt");
+		expect(info.claimedAt).toBe("2025-06-02");
 		expect(info.autoIdleTimeoutSeconds).toBe(900);
 	});
 });

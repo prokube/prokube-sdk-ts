@@ -15,6 +15,8 @@ export interface SandboxInfo {
 	image?: string;
 	pool?: string;
 	createdAt?: string;
+	claimName?: string;
+	claimedAt?: string;
 	autoIdleTimeoutSeconds?: number;
 	resumedFromPool?: boolean;
 }
@@ -166,6 +168,8 @@ export function parseSandboxInfo(data: Record<string, unknown>, workspace: strin
 		image: data.image as string | undefined,
 		pool: (data.poolName ?? data.pool) as string | undefined,
 		createdAt: (data.createdAt ?? data.created_at) as string | undefined,
+		claimName: (data.claimName ?? data.claim_name) as string | undefined,
+		claimedAt: (data.claimedAt ?? data.claimed_at) as string | undefined,
 		autoIdleTimeoutSeconds: (data.autoIdleTimeoutSeconds ?? data.auto_idle_timeout_seconds) as
 			| number
 			| undefined,

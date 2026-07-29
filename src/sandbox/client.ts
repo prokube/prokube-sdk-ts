@@ -201,6 +201,8 @@ export class SandboxClient {
 				image: data.image as string | undefined,
 				pool: (data.poolName ?? data.pool) as string | undefined,
 				createdAt: (data.createdAt ?? data.created_at) as string | undefined,
+				claimName: (data.claimName ?? data.claim_name) as string | undefined,
+				claimedAt: (data.claimedAt ?? data.claimed_at) as string | undefined,
 				resumedFromPool: data.resumedFromPool === true,
 			};
 		} catch (e) {
