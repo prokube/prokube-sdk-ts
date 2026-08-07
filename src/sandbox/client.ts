@@ -299,11 +299,6 @@ export class SandboxClient {
 		}
 	}
 
-	/** @deprecated Use {@link resume}, which now returns the admission body. */
-	async resumeInfo(name: string): Promise<SandboxInfo> {
-		return this.resume(name);
-	}
-
 	// ---- Execution ----
 
 	// Both exec entry points bound the fetch by

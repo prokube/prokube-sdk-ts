@@ -55,7 +55,6 @@ describe("public API surface", () => {
 				"Pending",
 				"Running",
 				"Paused",
-				"Bound",
 				"Succeeded",
 				"Failed",
 				"Unknown",
@@ -95,13 +94,12 @@ describe("public API surface", () => {
 			// `pause/resume -> SandboxInfo` change in its 0.2.0 release:
 			// callers that only `await` are unaffected; wrappers annotated as
 			// `Promise<void>` must drop the annotation or ignore the body.
-			const pauseInfo: (name: string) => Promise<sdk.SandboxInfo> = client.pause.bind(client);
-			const resumeInfo: (name: string) => Promise<sdk.SandboxInfo> = client.resume.bind(client);
-			expect((await pauseInfo("sb-1")).name).toBe("sb-1");
-			expect((await resumeInfo("sb-1")).name).toBe("sb-1");
-
-			// Pre-0.8 deprecated alias survives.
-			expect((await client.resumeInfo("sb-1")).name).toBe("sb-1");
+			const pauseSig: (name: string) => Promise<sdk.SandboxInfo> = client.pause.bind(client);
+			const resumeSig: (name: string) => Promise<sdk.SandboxInfo> = client.resume.bind(client);
+			expect((await pauseSig("sb-1")).name).toBe("sb-1");
+			expect((await resumeSig("sb-1")).name).toBe("sb-1");
+			// The pre-0.8 resumeInfo alias is gone in 0.2.0, like in Python.
+			expect("resumeInfo" in client).toBe(false);
 		} finally {
 			vi.unstubAllGlobals();
 		}

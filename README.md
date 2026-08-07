@@ -278,8 +278,8 @@ moves through an intermediate phase before it settles.
   poll shares one timeout budget, so a single slow status request cannot exceed
   it. It throws `SandboxError` if the sandbox reaches `Failed` (the message
   carries `lastError`) or `Deleting`, and `SandboxTimeoutError` on timeout.
-- `SandboxStatus.Bound` is deprecated: v0.8 backends never return it. It is
-  kept in the enum so existing code compiles.
+- `SandboxStatus.Bound` and `SandboxInfo.resumedFromPool` were removed in
+  0.2.0 (matching the Python SDK): v0.8 backends never report them.
 
 #### Pagination
 
@@ -384,8 +384,7 @@ interface SandboxInfo {
   workspace: string;
   status: SandboxStatus;
   lastError?: string;        // Backend failure detail, set when status is Failed
-  resumedFromPool?: boolean; // @deprecated - no longer populated by v0.8 backends
-  // ...remaining fields unchanged
+  // ...remaining fields unchanged; the pre-0.8 resumedFromPool field was removed
 }
 ```
 

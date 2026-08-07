@@ -15,11 +15,6 @@ export enum SandboxStatus {
 	Resuming = "Resuming",
 	/** Delete accepted; teardown and persistence purge are in flight. */
 	Deleting = "Deleting",
-	/**
-	 * @deprecated Never returned by pk-sandbox v0.8 or later backends. Kept
-	 * so existing code that references it still compiles.
-	 */
-	Bound = "Bound",
 	Succeeded = "Succeeded",
 	Failed = "Failed",
 	Unknown = "Unknown",
@@ -35,11 +30,6 @@ export interface SandboxInfo {
 	autoIdleTimeoutSeconds?: number;
 	/** Why the last lifecycle step failed. Set when the phase is `Failed`. */
 	lastError?: string;
-	/**
-	 * @deprecated pk-sandbox v0.8 no longer reports warm-pool resume swaps,
-	 * so this is never populated. Kept for source compatibility.
-	 */
-	resumedFromPool?: boolean;
 }
 
 /** One bounded page of sandbox information, as returned by the API. */

@@ -472,17 +472,6 @@ describe("SandboxClient", () => {
 			expect((await client.resume("sb-1")).lastError).toBe("pvc restore failed");
 		});
 
-		it("resumeInfo stays as a deprecated alias for resume", async () => {
-			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", phase: "Resuming" }, 202));
-
-			const client = new SandboxClient(makeConfig());
-			const info = await client.resumeInfo("sb-1");
-
-			expect(mockFetch.mock.calls[0][0] as string).toContain("/sandboxes/sb-1/resume");
-			expect(info.status).toBe(SandboxStatus.Resuming);
-		});
-
 		it("pause throws SandboxError on 409", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValue(mockResponse({ detail: "Not running" }, 409));

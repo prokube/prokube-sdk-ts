@@ -27,10 +27,10 @@ describe("SandboxStatus", () => {
 		expect(SandboxStatus.Deleting).toBe("Deleting");
 	});
 
-	it("still exposes the deprecated Bound member", () => {
-		// v0.8 backends never report it, but removing the member would break
-		// existing call sites that switch on it.
-		expect(SandboxStatus.Bound).toBe("Bound");
+	it("no longer carries the pre-0.8 Bound member", () => {
+		// Removed in 0.2.0 to match the Python SDK; v0.8 backends never
+		// report it.
+		expect("Bound" in SandboxStatus).toBe(false);
 	});
 });
 
@@ -47,8 +47,8 @@ describe("parseStatus", () => {
 		expect(parseStatus("Deleting")).toBe(SandboxStatus.Deleting);
 	});
 
-	it("still parses the legacy Bound phase", () => {
-		expect(parseStatus("Bound")).toBe(SandboxStatus.Bound);
+	it("maps the retired Bound phase to Unknown", () => {
+		expect(parseStatus("Bound")).toBe(SandboxStatus.Unknown);
 	});
 
 	it("returns Unknown for unrecognized values", () => {
@@ -137,16 +137,11 @@ describe("parseSandboxInfo", () => {
 		);
 	});
 
-	it("leaves the deprecated resumedFromPool undefined instead of throwing", () => {
-		// v0.8 stopped reporting warm-pool resume swaps. Reading the field
-		// must still be safe for existing call sites.
-		expect(
-			parseSandboxInfo({ name: "sb", phase: "Running" }, "ns").resumedFromPool,
-		).toBeUndefined();
-		expect(
-			parseSandboxInfo({ name: "sb", phase: "Running", resumedFromPool: true }, "ns")
-				.resumedFromPool,
-		).toBeUndefined();
+	it("ignores the retired resumedFromPool wire field", () => {
+		// v0.8 stopped reporting warm-pool resume swaps; the field no longer
+		// exists on SandboxInfo and stray backend payload keys are dropped.
+		const info = parseSandboxInfo({ name: "sb", phase: "Running", resumedFromPool: true }, "ns");
+		expect("resumedFromPool" in info).toBe(false);
 	});
 
 	it("honours the caller's default phase when the body has none", () => {
