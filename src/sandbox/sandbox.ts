@@ -85,8 +85,8 @@ export interface SandboxListPageOptions extends ConfigOptions {
 /**
  * One bounded page of ready-to-use sandboxes.
  *
- * Pass `continueToken` back to {@link Sandbox.listPage} together with the
- * same `limit` to fetch the next page.
+ * Pass `continueToken` back to {@link Sandbox.listPage} together with a
+ * `limit` (any valid value, 1-100) to fetch the next page.
  */
 export interface SandboxPage {
 	sandboxes: Sandbox[];
