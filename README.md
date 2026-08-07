@@ -445,6 +445,47 @@ npm run lint
 npm run build
 ```
 
+### E2E tests
+
+`tests/e2e/live-sandbox.test.ts` is a live acceptance suite: it drives the
+public SDK surface against a **real** pk-sandbox deployment and creates real,
+billable sandboxes and warm pools. It is excluded from `npm test` and from CI,
+and runs only through its own config:
+
+```bash
+npm run test:e2e
+```
+
+Without the three required variables every scenario skips and the command
+exits 0, so it is safe to run anywhere. With them set it exercises the full
+lifecycle (create → ready → stateful `runCode` → `resetSession` → commands →
+files → listing/pagination → pause → resume → kill), the warm-pool claim path,
+and the not-found / invalid-state error surface.
+
+| Variable | Required | Default | Purpose |
+| --- | --- | --- | --- |
+| `PROKUBE_API_URL` | yes | — | Backend base URL, e.g. `https://prokube.ai/pkui` |
+| `PROKUBE_WORKSPACE` | yes | — | Kubernetes namespace / workspace to run in |
+| `PROKUBE_API_KEY` | yes | — | API key for external access |
+| `SANDBOX_IMAGE` | no | `europe-west3-docker.pkg.dev/prokube-internal/prokube-customer/pk-sandbox-base:v14-05-2026` | Image used for every sandbox and for an ephemeral pool |
+| `SANDBOX_POOL` | no | _unset_ | Reuse this existing warm pool. When unset the suite creates an ephemeral pool and deletes it afterwards; a pre-existing pool is never deleted |
+| `SANDBOX_POOL_SIZE` | no | `5` | Positive integer, mirroring the Python suite. The ephemeral pool is capped at `min(SANDBOX_POOL_SIZE, 2)` to stay cheap — set `1` for the smallest run |
+| `SANDBOX_POOL_READY_TIMEOUT` | no | `120` | Seconds to wait for the pool to report a ready replica |
+
+`SANDBOX_POOL_SIZE` and `SANDBOX_POOL_READY_TIMEOUT` must parse as positive
+integers; anything else fails immediately with a message naming the variable.
+
+One-liner against a live cluster:
+
+```bash
+PROKUBE_API_URL=https://prokube.ai/pkui PROKUBE_WORKSPACE=my-workspace PROKUBE_API_KEY=$PK_KEY npm run test:e2e
+```
+
+Resource names are unique per run (`ts-e2e-<base36 timestamp>-…`), and every
+sandbox is killed and every ephemeral pool deleted in `afterAll` even when
+assertions fail. Env parsing itself lives in `tests/e2e/live-config.ts` and is
+unit-tested by `tests/live-config.test.ts`, which does run in `npm test`.
+
 ## Requirements
 
 - Node.js >= 20.19.0 (uses native `fetch`)
