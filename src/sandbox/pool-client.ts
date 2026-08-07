@@ -1,3 +1,4 @@
+import { checkBackendCompatibility } from "../common/compat.js";
 import type { Config } from "../common/config.js";
 import { NotFoundError, PoolNotFoundError } from "../common/errors.js";
 import { HttpClient } from "../common/http.js";
@@ -6,10 +7,29 @@ import { type CreatePoolRequest, type PoolInfo, parsePoolInfo } from "./models.j
 export class PoolClient {
 	private readonly http: HttpClient;
 	private readonly workspace: string;
+	private readonly checkVersion: boolean;
+	private compatibilityChecked: Promise<void> | undefined;
 
-	constructor(config: Config) {
+	/**
+	 * @param checkVersion Whether {@link ensureCompatibility} performs the
+	 *   backend version check. Pass `false` for the extra clients built per
+	 *   listing result, whose compatibility the listing client already
+	 *   verified.
+	 */
+	constructor(config: Config, checkVersion = true) {
 		this.http = new HttpClient(config);
 		this.workspace = config.workspace;
+		this.checkVersion = checkVersion;
+	}
+
+	/**
+	 * Verify backend compatibility once, before the first real request.
+	 * See {@link SandboxClient.ensureCompatibility}.
+	 */
+	async ensureCompatibility(): Promise<void> {
+		if (!this.checkVersion) return;
+		this.compatibilityChecked ??= checkBackendCompatibility(this.http);
+		return this.compatibilityChecked;
 	}
 
 	// ---- Path helpers ----

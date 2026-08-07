@@ -20,15 +20,25 @@ default, so installing from source can leave `dist/` missing unless the package
 is explicitly trusted.
 
 ```bash
-# Replace v2026-04-24 with the desired release tag
-bun add https://github.com/prokube/prokube-sdk-ts/releases/download/v2026-04-24/prokube-v2026-04-24.tgz
+# Replace v0.2.0 with the desired release tag
+bun add https://github.com/prokube/prokube-sdk-ts/releases/download/v0.2.0/prokube-v0.2.0.tgz
 ```
 
 Each GitHub release publishes a packed `.tgz` built from the SDK's `dist/`
 output, so consumers do not need to run `prepare` or rebuild inside Docker.
-This repo uses date-based package versions such as `2026.4.24`, with matching
-GitHub release tags and asset names such as `v2026-04-24` and
-`prokube-v2026-04-24.tgz`.
+
+### Versioning
+
+Starting with `0.2.0` this SDK uses semantic versioning, aligned with the
+Python SDK (`prokube-sdk`) release line. Earlier releases used date-based
+versions such as `2026.7.5` with release tags like `v2026-07-05`. Release tags
+are now `v` + the `package.json` version (for example `v0.2.0`), and release
+assets are named accordingly (`prokube-v0.2.0.tgz`).
+
+`0.2.0` requires a pk-sandbox backend of **0.8.0 or newer**. The SDK checks the
+backend version on first use and emits a `console.warn` when the backend is
+older than the minimum; the check is skipped for API-key (external) access
+because external endpoints do not expose `/api/version`.
 
 To validate the release package path locally, run:
 
@@ -41,8 +51,9 @@ npm run smoke:release
 ```typescript
 import { Sandbox } from "prokube";
 
-// Claim a sandbox from a warm pool (instant, <100ms)
+// Claim a sandbox from a warm pool (fast, but adoption is asynchronous)
 const sbx = await Sandbox.fromPool("python-pool");
+await sbx.waitUntilReady();
 
 // Or create directly (cold start, ~10-30s)
 const sbx2 = await Sandbox.create("pk-sandbox:python-datascience");
@@ -67,8 +78,14 @@ await sbx.files.writeBatch([
 const content = await sbx.files.read("/workspace/output.txt");
 const files = await sbx.files.list("/workspace");
 
-// Cleanup
-await sbx.kill();
+// Pause / resume: both are asynchronous on the backend.
+await sbx.pause(); // blocks until the sandbox reports Paused
+await sbx.resume(); // returns immediately, phase is Resuming
+await sbx.waitUntilReady(); // block until the new pod is Running
+
+// Cleanup. Deletion (including the persistence purge that releases the name)
+// is asynchronous; pass { wait: true } when you need guaranteed reclamation.
+await sbx.kill({ wait: true });
 ```
 
 ### Automatic Cleanup
@@ -80,6 +97,7 @@ import { Sandbox } from "prokube";
 
 {
   await using sbx = await Sandbox.fromPool("python-pool");
+  await sbx.waitUntilReady();
   const result = await sbx.runCode("print(42)");
   console.log(result.stdout);
 } // Sandbox is automatically killed
@@ -89,6 +107,7 @@ Or with a `try/finally` block:
 
 ```typescript
 const sbx = await Sandbox.fromPool("python-pool");
+await sbx.waitUntilReady();
 try {
   const result = await sbx.runCode("print(42)");
   console.log(result.stdout);
@@ -96,6 +115,12 @@ try {
   await sbx.kill();
 }
 ```
+
+`await using` and the `try/finally` block both call `kill()` with its default
+(non-blocking) behaviour: the delete request is accepted with HTTP 202 and the
+backend finishes tearing the sandbox down — including the persistence purge
+that releases the name — in the background. Use `kill({ wait: true })` when you
+need the name reclaimed before continuing.
 
 ## Configuration
 
@@ -192,27 +217,115 @@ The main class for interacting with sandboxes.
 class Sandbox {
   name: string;       // Sandbox name
   workspace: string;  // Workspace (Kubernetes namespace)
-  status: SandboxStatus; // Pending, Running, Paused, Bound, Succeeded, Failed, Unknown
+  status: SandboxStatus; // Pending, Running, Paused, Pausing, Resuming,
+                         // Deleting, Succeeded, Failed, Unknown
 
   static fromPool(pool: string, options?: SandboxOptions): Promise<Sandbox>;
   static create(image: string, options?: SandboxOptions & { name?: string }): Promise<Sandbox>;
   static get(name: string, options?: ConfigOptions): Promise<Sandbox>;
   static connect: typeof Sandbox.get;  // Alias
   static list(options?: ConfigOptions & { phase?: SandboxStatus }): Promise<Sandbox[]>;
+  static listPage(
+    options?: ConfigOptions & { limit?: number; continueToken?: string },
+  ): Promise<SandboxPage>;
 
   runCode(code: string, language?: string, timeout?: number): Promise<CodeResult>;
   resetSession(): void;
 
-  pause(): Promise<void>;
+  pause(options?: { wait?: boolean; timeout?: number }): Promise<void>;
   resume(): Promise<void>;
   waitUntilReady(timeout?: number): Promise<void>;
-  kill(): Promise<void>;
+  kill(options?: { wait?: boolean; timeout?: number }): Promise<void>;
 
   commands: CommandRunner;
   files: FileManager;
   sessionId: string | undefined;
 }
 ```
+
+#### Lifecycle
+
+Against a v0.8 backend every lifecycle transition is asynchronous: claim,
+create, pause, resume, and delete are accepted with HTTP 202 and the sandbox
+moves through an intermediate phase before it settles.
+
+| Call | Returns when | Phase you observe | Follow up with |
+| --- | --- | --- | --- |
+| `fromPool()` | claim accepted | `Pending` | `waitUntilReady()` |
+| `create()` | create accepted | `Pending` | `waitUntilReady()` |
+| `pause()` | sandbox reports `Paused` (default `wait: true`) | `Pausing` → `Paused` | — |
+| `pause({ wait: false })` | pause accepted | `Pausing` | poll `refresh()` / `status` |
+| `resume()` | resume accepted (never blocks) | `Resuming` | `waitUntilReady()` |
+| `kill()` | delete accepted (default `wait: false`) | local `status` flips to `Succeeded` at once | — |
+| `kill({ wait: true })` | sandbox is gone (HTTP 404) | local `status` flips to `Succeeded` once gone | — |
+
+- `pause(options)` defaults to `{ wait: true, timeout: 300 }` (seconds), so
+  existing `await sbx.pause()` call sites keep blocking until `Paused`.
+- `kill(options)` defaults to `{ wait: false, timeout: 300 }`. Deletion
+  includes an asynchronous persistence purge, and the sandbox name stays
+  reserved until that purge finishes — pass `{ wait: true }` when you need to
+  reuse the name or reclaim quota immediately.
+- `kill()` marks the sandbox dead locally the moment the delete is accepted:
+  `status` reads `Succeeded` and every further operation throws, even though
+  the backend is still tearing the pod down (its own phase is `Deleting`
+  until the record is purged). The local status is the SDK's "this handle is
+  finished" flag, not a backend phase reading — the handle's client is closed,
+  so it cannot report backend phases any more. Use `Sandbox.get(name)` if you
+  need to observe the backend-side teardown.
+- `waitUntilReady(timeout)` polls through `Pending` and `Resuming` until the
+  phase is `Running`. The timeout is in seconds and defaults to the client
+  timeout (`PROKUBE_TIMEOUT` / the `timeout` option, 300 by default). The whole
+  poll shares one timeout budget, so a single slow status request cannot exceed
+  it. It throws `SandboxError` if the sandbox reaches `Failed` (the message
+  carries `lastError`) or `Deleting`, and `SandboxTimeoutError` on timeout.
+- `SandboxStatus.Bound` and `SandboxInfo.resumedFromPool` were removed in
+  0.2.0 (matching the Python SDK): v0.8 backends never report them.
+
+#### Pagination
+
+`listPage()` returns one bounded, name-ordered page across every sandbox
+phase. Idle warm-pool capacity is internal infrastructure and never appears in
+the listing. `limit` defaults to `25` and must be between 1 and 100.
+
+```typescript
+import { Sandbox } from "prokube";
+
+interface SandboxPage {
+  sandboxes: Sandbox[];
+  loaded: number;
+  hasMore: boolean;
+  continueToken?: string;
+}
+
+let page = await Sandbox.listPage({ limit: 10 });
+for (const sandbox of page.sandboxes) {
+  console.log(sandbox.name, sandbox.status);
+}
+
+while (page.hasMore) {
+  // The continuation token is an opaque keyset cursor: pass it back together
+  // with a `limit` (required whenever a token is supplied) for the next page.
+  page = await Sandbox.listPage({ limit: 10, continueToken: page.continueToken });
+  for (const sandbox of page.sandboxes) {
+    console.log(sandbox.name, sandbox.status);
+  }
+}
+```
+
+`Sandbox.list()` is unchanged and still returns every sandbox in one call.
+
+#### Backend compatibility
+
+```typescript
+import { MIN_BACKEND_VERSION, getSdkVersion, parseVersion } from "prokube";
+
+console.log(MIN_BACKEND_VERSION); // "0.8.0"
+```
+
+Every `Sandbox.*` / `SandboxPool.*` factory checks the backend version once per
+client before its first request. A backend older than `MIN_BACKEND_VERSION`
+produces a `console.warn`; the check never throws and is skipped entirely for
+API-key (external) access, where `/api/version` is not exposed.
 
 ### CommandRunner
 
@@ -263,6 +376,23 @@ Execution timeouts are returned as failed results, not successful executions:
 so `commandSuccess(result)` returns `false`. Timeout details are included in the
 error fields or `stderr` when provided by the backend.
 
+### SandboxInfo
+
+```typescript
+interface SandboxInfo {
+  name: string;
+  workspace: string;
+  status: SandboxStatus;
+  lastError?: string;        // Backend failure detail, set when status is Failed
+  // ...remaining fields unchanged; the pre-0.8 resumedFromPool field was removed
+}
+```
+
+`lastError` carries the backend's failure detail for a sandbox in phase
+`Failed`. `pause()`, `kill({ wait: true })`, and `waitUntilReady()` include it
+in the `SandboxError` they throw when a sandbox fails mid-transition, so the
+reason surfaces instead of a bare timeout.
+
 ### Errors
 
 ```
@@ -282,6 +412,15 @@ HTTP 429 with `reason` or `error` set to `pool_exhausted`. Treat this as
 retryable backpressure: no warm pool capacity is currently available. The error
 has `statusCode: 429`, `reason: "pool_exhausted"`, and preserves the optional
 `Retry-After` response header as `retryAfter`.
+
+`kill({ wait: true })` rejects with `SandboxError` if the backend lands the
+delete in a terminal failure (phase `Failed`, message carries `lastError`), and
+with `SandboxTimeoutError` if the sandbox is still present when the timeout
+elapses. Once the delete has been admitted the sandbox is locked even if the
+wait fails: `runCode()`, `commands`, and `files` reject from then on, while
+`kill({ wait: true })` may be re-issued to keep waiting (the backend's DELETE is
+idempotent while teardown is in flight). If the initial delete request itself
+fails, the sandbox stays usable so you can retry.
 
 ## Development
 
@@ -306,10 +445,52 @@ npm run lint
 npm run build
 ```
 
+### E2E tests
+
+`tests/e2e/live-sandbox.test.ts` is a live acceptance suite: it drives the
+public SDK surface against a **real** pk-sandbox deployment and creates real,
+billable sandboxes and warm pools. It is excluded from `npm test` and from CI,
+and runs only through its own config:
+
+```bash
+npm run test:e2e
+```
+
+Without the three required variables every scenario skips and the command
+exits 0, so it is safe to run anywhere. With them set it exercises the full
+lifecycle (create → ready → stateful `runCode` → `resetSession` → commands →
+files → listing/pagination → pause → resume → kill), the warm-pool claim path,
+and the not-found / invalid-state error surface.
+
+| Variable | Required | Default | Purpose |
+| --- | --- | --- | --- |
+| `PROKUBE_API_URL` | yes | — | Backend base URL, e.g. `https://prokube.ai/pkui` |
+| `PROKUBE_WORKSPACE` | yes | — | Kubernetes namespace / workspace to run in |
+| `PROKUBE_API_KEY` | yes | — | API key for external access |
+| `SANDBOX_IMAGE` | no | `europe-west3-docker.pkg.dev/prokube-internal/prokube-customer/pk-sandbox-base:v14-05-2026` | Image used for every sandbox and for an ephemeral pool |
+| `SANDBOX_POOL` | no | _unset_ | Reuse this existing warm pool. When unset the suite creates an ephemeral pool and deletes it afterwards; a pre-existing pool is never deleted |
+| `SANDBOX_POOL_SIZE` | no | `5` | Positive integer, mirroring the Python suite. The ephemeral pool is capped at `min(SANDBOX_POOL_SIZE, 2)` to stay cheap — set `1` for the smallest run |
+| `SANDBOX_POOL_READY_TIMEOUT` | no | `120` | Seconds to wait for the pool to report a ready replica |
+
+`SANDBOX_POOL_SIZE` and `SANDBOX_POOL_READY_TIMEOUT` must parse as positive
+integers; anything else fails immediately with a message naming the variable.
+
+One-liner against a live cluster:
+
+```bash
+PROKUBE_API_URL=https://prokube.ai/pkui PROKUBE_WORKSPACE=my-workspace PROKUBE_API_KEY=$PK_KEY npm run test:e2e
+```
+
+Resource names are unique per run (`ts-e2e-<base36 timestamp>-…`), and every
+sandbox is killed and every ephemeral pool deleted in `afterAll` even when
+assertions fail. Env parsing itself lives in `tests/e2e/live-config.ts` and is
+unit-tested by `tests/live-config.test.ts`, which does run in `npm test`.
+
 ## Requirements
 
 - Node.js >= 20.19.0 (uses native `fetch`)
 - TypeScript >= 5.7
+- pk-sandbox backend >= 0.8.0
 
 ## License
 

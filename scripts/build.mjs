@@ -21,7 +21,7 @@ function resolvePackageBin(packageName, binName) {
 	const packageJson = require(packageJsonPath);
 	const binField = packageJson.bin;
 	const relativeBinPath =
-		typeof binField === "string" ? binField : binField?.[binName] ?? binField?.[packageName];
+		typeof binField === "string" ? binField : (binField?.[binName] ?? binField?.[packageName]);
 
 	if (!relativeBinPath) {
 		throw new Error(`Could not resolve binary ${binName} from ${packageName}.`);

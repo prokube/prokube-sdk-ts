@@ -1,6 +1,6 @@
 {
 	"name": "prokube",
-	"version": "2026.7.5",
+	"version": "0.2.0",
 	"description": "TypeScript SDK for the prokube.ai sandbox platform",
 	"type": "module",
 	"main": "./dist/index.cjs",
@@ -27,6 +27,7 @@
 		"smoke:release": "node ./scripts/smoke-release.mjs",
 		"test": "vitest run",
 		"test:watch": "vitest",
+		"test:e2e": "vitest run --config vitest.e2e.config.ts",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
 		"format": "biome format --write .",

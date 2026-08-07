@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SandboxPool } from "../src/sandbox/pool.js";
+import { apiCalls, versionResponse } from "./helpers.js";
 
 function mockResponse(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), {
@@ -35,7 +36,7 @@ describe("SandboxPool", () => {
 	describe("create", () => {
 		it("creates a new pool", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse(poolData));
+			mockFetch.mockImplementation(async () => mockResponse(poolData));
 
 			const pool = await SandboxPool.create({
 				...defaultConfig,
@@ -52,7 +53,7 @@ describe("SandboxPool", () => {
 			expect(pool.cpu).toBe("2");
 			expect(pool.memory).toBe("4Gi");
 
-			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			const body = JSON.parse(apiCalls(mockFetch)[0][1]?.body as string);
 			expect(body.name).toBe("gpu-pool");
 			expect(body.image).toBe("python:3.10");
 			expect(body.poolSize).toBe(5);
@@ -60,7 +61,7 @@ describe("SandboxPool", () => {
 
 		it("omits new optional fields when not provided", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse(poolData));
+			mockFetch.mockImplementation(async () => mockResponse(poolData));
 
 			await SandboxPool.create({
 				...defaultConfig,
@@ -69,7 +70,7 @@ describe("SandboxPool", () => {
 				poolSize: 5,
 			});
 
-			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			const body = JSON.parse(apiCalls(mockFetch)[0][1]?.body as string);
 			expect(body).not.toHaveProperty("allowInternetAccess");
 			expect(body).not.toHaveProperty("autoIdleTimeoutSeconds");
 			expect(body).not.toHaveProperty("envVars");
@@ -78,7 +79,7 @@ describe("SandboxPool", () => {
 
 		it("forwards allowInternetAccess, envVars, and secretRefs to request body", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse(poolData));
+			mockFetch.mockImplementation(async () => mockResponse(poolData));
 
 			await SandboxPool.create({
 				...defaultConfig,
@@ -91,7 +92,7 @@ describe("SandboxPool", () => {
 				secretRefs: ["my-secret"],
 			});
 
-			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			const body = JSON.parse(apiCalls(mockFetch)[0][1]?.body as string);
 			expect(body.allowInternetAccess).toBe(true);
 			expect(body.envVars).toEqual([{ name: "FOO", value: "bar" }]);
 			expect(body.secretRefs).toEqual(["my-secret"]);
@@ -101,7 +102,9 @@ describe("SandboxPool", () => {
 
 		it("forwards autoIdleTimeoutSeconds to request body", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse({ ...poolData, autoIdleTimeoutSeconds: 1200 }));
+			mockFetch.mockImplementation(async () =>
+				mockResponse({ ...poolData, autoIdleTimeoutSeconds: 1200 }),
+			);
 
 			const pool = await SandboxPool.create({
 				...defaultConfig,
@@ -111,7 +114,7 @@ describe("SandboxPool", () => {
 				autoIdleTimeoutSeconds: 1200,
 			});
 
-			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			const body = JSON.parse(apiCalls(mockFetch)[0][1]?.body as string);
 			expect(body.autoIdleTimeoutSeconds).toBe(1200);
 			expect(pool.autoIdleTimeoutSeconds).toBe(1200);
 		});
@@ -120,7 +123,7 @@ describe("SandboxPool", () => {
 	describe("list", () => {
 		it("returns empty list", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse({ pools: [] }));
+			mockFetch.mockImplementation(async () => mockResponse({ pools: [] }));
 
 			const result = await SandboxPool.list(defaultConfig);
 			expect(result).toEqual([]);
@@ -128,7 +131,7 @@ describe("SandboxPool", () => {
 
 		it("returns multiple pools", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(
+			mockFetch.mockImplementation(async () =>
 				mockResponse({
 					pools: [
 						{ name: "pool-1", replicas: 3, readyReplicas: 2 },
@@ -147,7 +150,7 @@ describe("SandboxPool", () => {
 	describe("get", () => {
 		it("gets an existing pool", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse(poolData));
+			mockFetch.mockImplementation(async () => mockResponse(poolData));
 
 			const pool = await SandboxPool.get("gpu-pool", defaultConfig);
 			expect(pool.name).toBe("gpu-pool");
@@ -159,22 +162,26 @@ describe("SandboxPool", () => {
 	describe("delete", () => {
 		it("deletes the pool", async () => {
 			const mockFetch = vi.mocked(fetch);
-			// First call for get
+			// First call for version probe
+			mockFetch.mockResolvedValueOnce(versionResponse());
+			// Second call for get
 			mockFetch.mockResolvedValueOnce(mockResponse(poolData));
-			// Second call for delete
+			// Third call for delete
 			mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
 			const pool = await SandboxPool.get("gpu-pool", defaultConfig);
 			await pool.delete();
 
-			expect(mockFetch.mock.calls[1][1]?.method).toBe("DELETE");
+			expect(apiCalls(mockFetch)[1][1]?.method).toBe("DELETE");
 		});
 
 		it("closes client even if delete throws", async () => {
 			const mockFetch = vi.mocked(fetch);
-			// First call for get
+			// First call for version probe
+			mockFetch.mockResolvedValueOnce(versionResponse());
+			// Second call for get
 			mockFetch.mockResolvedValueOnce(mockResponse(poolData));
-			// Second call for delete fails
+			// Third call for delete fails
 			mockFetch.mockRejectedValueOnce(new Error("network error"));
 
 			const pool = await SandboxPool.get("gpu-pool", defaultConfig);
@@ -185,9 +192,11 @@ describe("SandboxPool", () => {
 	describe("refresh", () => {
 		it("updates pool info from API", async () => {
 			const mockFetch = vi.mocked(fetch);
-			// First call for get
+			// First call for version probe
+			mockFetch.mockResolvedValueOnce(versionResponse());
+			// Second call for get
 			mockFetch.mockResolvedValueOnce(mockResponse(poolData));
-			// Second call for refresh with updated data
+			// Third call for refresh with updated data
 			mockFetch.mockResolvedValueOnce(
 				mockResponse({
 					name: "gpu-pool",
@@ -211,6 +220,7 @@ describe("SandboxPool", () => {
 
 		it("preserves known autoIdleTimeoutSeconds when response omits it", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ ...poolData, autoIdleTimeoutSeconds: 1200 }));
 			mockFetch.mockResolvedValueOnce(
 				mockResponse({ name: "gpu-pool", replicas: 5, readyReplicas: 5 }),

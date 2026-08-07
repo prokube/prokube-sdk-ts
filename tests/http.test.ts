@@ -5,10 +5,14 @@ import {
 	NotFoundError,
 	PoolExhaustedError,
 	ProKubeError,
+	RequestTimeoutError,
 } from "../src/common/errors.js";
 import { HttpClient } from "../src/common/http.js";
+import { abortTimeoutError, captureRequestTimeouts } from "./helpers.js";
 
-function makeConfig(overrides: Partial<{ apiKey: string; userId: string }> = {}): Config {
+function makeConfig(
+	overrides: Partial<{ apiKey: string; userId: string; timeout: number }> = {},
+): Config {
 	return new Config({
 		apiUrl: "https://example.com/pkui",
 		workspace: "test-ns",
@@ -218,5 +222,72 @@ describe("HttpClient", () => {
 
 		const url = mockFetch.mock.calls[0][0] as string;
 		expect(url).toBe("https://example.com/pkui/_platform/sandbox/ns/sandboxes");
+	});
+
+	describe("per-request timeout", () => {
+		it("arms an abort signal with the configured timeout by default", async () => {
+			const budgets = captureRequestTimeouts();
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }));
+
+			const client = new HttpClient(makeConfig({ timeout: 30 }));
+			await client.get("/api/test");
+
+			expect(budgets).toEqual([30_000]);
+			expect((mockFetch.mock.calls[0][1] as RequestInit).signal).toBeInstanceOf(AbortSignal);
+		});
+
+		it("lets a caller bound one request to a shorter budget", async () => {
+			const budgets = captureRequestTimeouts();
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockImplementation(async () => new Response(JSON.stringify({}), { status: 200 }));
+
+			const client = new HttpClient(makeConfig({ timeout: 300 }));
+			await client.get("/api/test", undefined, 2.5);
+			await client.post("/api/test", { a: 1 }, 4);
+			await client.delete("/api/test", 1);
+
+			expect(budgets).toEqual([2_500, 4_000, 1_000]);
+		});
+
+		it("floors a sub-millisecond budget to 1ms instead of dropping the timeout", async () => {
+			const budgets = captureRequestTimeouts();
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }));
+
+			await new HttpClient(makeConfig()).get("/api/test", undefined, 0);
+
+			expect(budgets).toEqual([1]);
+		});
+
+		it("normalizes a timeout abort into RequestTimeoutError", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockRejectedValue(abortTimeoutError());
+
+			const client = new HttpClient(makeConfig());
+			await expect(client.get("/api/test", undefined, 1)).rejects.toBeInstanceOf(
+				RequestTimeoutError,
+			);
+		});
+
+		it("normalizes a timeout abort wrapped in a cause chain", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockRejectedValue(new TypeError("fetch failed", { cause: abortTimeoutError() }));
+
+			const client = new HttpClient(makeConfig());
+			await expect(client.get("/api/test", undefined, 1)).rejects.toBeInstanceOf(
+				RequestTimeoutError,
+			);
+		});
+
+		it("leaves an unrelated transport failure untouched", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockRejectedValue(new TypeError("connection refused"));
+
+			const client = new HttpClient(makeConfig());
+			const failure = client.get("/api/test");
+			await expect(failure).rejects.toBeInstanceOf(TypeError);
+			await expect(failure).rejects.not.toBeInstanceOf(RequestTimeoutError);
+		});
 	});
 });

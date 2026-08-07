@@ -57,6 +57,7 @@ export class SandboxPool {
 		const config = new Config(options);
 		const client = new PoolClient(config);
 		try {
+			await client.ensureCompatibility();
 			const info = await client.create({
 				name: options.name,
 				image: options.image,
@@ -88,8 +89,11 @@ export class SandboxPool {
 		const config = new Config(options);
 		const client = new PoolClient(config);
 		try {
+			await client.ensureCompatibility();
 			const infos = await client.list();
-			return infos.map((info) => new SandboxPool(info, new PoolClient(config)));
+			// Each pool gets its own client; the listing client already
+			// verified backend compatibility, so skip the repeat check.
+			return infos.map((info) => new SandboxPool(info, new PoolClient(config, false)));
 		} finally {
 			client.close();
 		}
@@ -102,6 +106,7 @@ export class SandboxPool {
 		const config = new Config(options);
 		const client = new PoolClient(config);
 		try {
+			await client.ensureCompatibility();
 			const info = await client.get(name);
 			return new SandboxPool(info, client);
 		} catch (e) {

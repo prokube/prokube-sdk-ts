@@ -1,7 +1,4 @@
-import {
-	getDeclarationFilesFromPackageJson,
-	validateDeclarationFile,
-} from "./check-dts-lib.mjs";
+import { getDeclarationFilesFromPackageJson, validateDeclarationFile } from "./check-dts-lib.mjs";
 
 for (const file of getDeclarationFilesFromPackageJson()) {
 	validateDeclarationFile(file);
