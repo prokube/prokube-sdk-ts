@@ -22,6 +22,7 @@ import {
 	SandboxStatus,
 } from "../../src/index.js";
 import { loadLiveSandboxConfig, skipReason } from "./live-config.js";
+import { printTimingReport, timed } from "./timing.js";
 
 const config = loadLiveSandboxConfig();
 const SKIP = config.missingRequiredEnv.length > 0;
@@ -34,6 +35,10 @@ const { sdkOptions, sandboxImage } = config;
 
 /** Unique per run so concurrent runs against one cluster cannot collide. */
 const RUN_ID = `ts-e2e-${Date.now().toString(36)}-${Math.floor(Math.random() * 4096).toString(36)}`;
+
+afterAll(() => {
+	printTimingReport(`Live E2E timings — single round (run ${RUN_ID})`);
+});
 
 /** Seconds to wait for a cold sandbox to become Running. */
 const READY_TIMEOUT = 300;
@@ -97,8 +102,10 @@ describe.skipIf(SKIP)("live sandbox: direct create lifecycle", () => {
 	}
 
 	beforeAll(async () => {
-		sandbox = await Sandbox.create(sandboxImage, { ...sdkOptions, name });
-		await sandbox.waitUntilReady(READY_TIMEOUT);
+		sandbox = await timed("Sandbox.create (admission)", () =>
+			Sandbox.create(sandboxImage, { ...sdkOptions, name }),
+		);
+		await timed("waitUntilReady after create", () => activeSandbox().waitUntilReady(READY_TIMEOUT));
 		expect(sandbox.name).toBe(name);
 		expect(await sandbox.getPhase()).toBe(SandboxStatus.Running);
 	});
@@ -109,12 +116,16 @@ describe.skipIf(SKIP)("live sandbox: direct create lifecycle", () => {
 	});
 
 	it("keeps Jupyter session state across runCode calls", async () => {
-		const first = await activeSandbox().runCode("e2e_marker = 41 + 1");
+		const first = await timed("first runCode", () =>
+			activeSandbox().runCode("e2e_marker = 41 + 1"),
+		);
 		expect(first.success, `stderr: ${first.stderr}`).toBe(true);
 		const sessionId = activeSandbox().sessionId;
 		expect(sessionId).toBeTruthy();
 
-		const second = await activeSandbox().runCode("print(e2e_marker)");
+		const second = await timed("runCode (cached session)", () =>
+			activeSandbox().runCode("print(e2e_marker)"),
+		);
 		expect(second.success, `stderr: ${second.stderr}`).toBe(true);
 		expect(second.stdout).toContain("42");
 		expect(activeSandbox().sessionId).toBe(sessionId);
@@ -125,7 +136,9 @@ describe.skipIf(SKIP)("live sandbox: direct create lifecycle", () => {
 		activeSandbox().resetSession();
 		expect(activeSandbox().sessionId).toBeUndefined();
 
-		const result = await activeSandbox().runCode("print(e2e_marker)");
+		const result = await timed("runCode after resetSession", () =>
+			activeSandbox().runCode("print(e2e_marker)"),
+		);
 		expect(result.success).toBe(false);
 		expect(`${result.errorName ?? ""}${result.stderr}`).toContain("NameError");
 		// A fresh kernel means a different session id.
@@ -134,7 +147,9 @@ describe.skipIf(SKIP)("live sandbox: direct create lifecycle", () => {
 	});
 
 	it("runs shell commands and reports exit codes", async () => {
-		const ok = await activeSandbox().commands.run("echo e2e-shell-ok");
+		const ok = await timed("commands.run (echo)", () =>
+			activeSandbox().commands.run("echo e2e-shell-ok"),
+		);
 		expect(ok.exitCode).toBe(0);
 		expect(ok.stdout).toContain("e2e-shell-ok");
 
@@ -143,8 +158,10 @@ describe.skipIf(SKIP)("live sandbox: direct create lifecycle", () => {
 	});
 
 	it("round-trips text and binary files", async () => {
-		await activeSandbox().files.write(textPath, textContent);
-		expect(decoder.decode(await activeSandbox().files.read(textPath))).toBe(textContent);
+		await timed("files.write (text)", () => activeSandbox().files.write(textPath, textContent));
+		expect(
+			decoder.decode(await timed("files.read (text)", () => activeSandbox().files.read(textPath))),
+		).toBe(textContent);
 
 		await activeSandbox().files.write(binaryPath, binaryContent);
 		const readBack = await activeSandbox().files.read(binaryPath);
@@ -152,16 +169,18 @@ describe.skipIf(SKIP)("live sandbox: direct create lifecycle", () => {
 	});
 
 	it("writes a batch and lists the directory", async () => {
-		const batch = await activeSandbox().files.writeBatch([
-			{ path: "/workspace/e2e-batch-1.txt", content: "batch-one" },
-			{ path: "/workspace/e2e-batch-2.txt", content: new Uint8Array([98, 116, 119, 111]) },
-		]);
+		const batch = await timed("files.writeBatch (2 items)", () =>
+			activeSandbox().files.writeBatch([
+				{ path: "/workspace/e2e-batch-1.txt", content: "batch-one" },
+				{ path: "/workspace/e2e-batch-2.txt", content: new Uint8Array([98, 116, 119, 111]) },
+			]),
+		);
 		expect(batch.total).toBe(2);
 		expect(batch.successCount, JSON.stringify(batch.results)).toBe(2);
 		expect(batch.failureCount).toBe(0);
 		expect(batch.success).toBe(true);
 
-		const entries = await activeSandbox().files.list("/workspace");
+		const entries = await timed("files.list", () => activeSandbox().files.list("/workspace"));
 		const names = entries.map((entry) => entry.name);
 		expect(names).toContain("e2e-batch-1.txt");
 		expect(names).toContain("e2e-batch-2.txt");
@@ -169,14 +188,16 @@ describe.skipIf(SKIP)("live sandbox: direct create lifecycle", () => {
 	});
 
 	it("finds the sandbox via get, list and listPage", async () => {
-		const fetched = await Sandbox.get(name, sdkOptions);
+		const fetched = await timed("Sandbox.get", () => Sandbox.get(name, sdkOptions));
 		expect(fetched.name).toBe(name);
 		expect(fetched.status).toBe(SandboxStatus.Running);
 
-		const all = await Sandbox.list(sdkOptions);
+		const all = await timed("Sandbox.list", () => Sandbox.list(sdkOptions));
 		expect(all.map((entry) => entry.name)).toContain(name);
 
-		const page = await Sandbox.listPage({ ...sdkOptions, limit: 1 });
+		const page = await timed("Sandbox.listPage (limit 1)", () =>
+			Sandbox.listPage({ ...sdkOptions, limit: 1 }),
+		);
 		expect(page.loaded).toBeLessThanOrEqual(1);
 		expect(page.sandboxes.length).toBeLessThanOrEqual(page.loaded);
 		expect(typeof page.hasMore).toBe("boolean");
@@ -203,14 +224,16 @@ describe.skipIf(SKIP)("live sandbox: direct create lifecycle", () => {
 		const seeded = await activeSandbox().runCode("pause_marker = 'survives-nothing'");
 		expect(seeded.success, `stderr: ${seeded.stderr}`).toBe(true);
 
-		await activeSandbox().pause({ wait: true, timeout: LIFECYCLE_TIMEOUT });
+		await timed("pause (wait=true)", () =>
+			activeSandbox().pause({ wait: true, timeout: LIFECYCLE_TIMEOUT }),
+		);
 		expect(activeSandbox().status).toBe(SandboxStatus.Paused);
 		expect(await activeSandbox().getPhase()).toBe(SandboxStatus.Paused);
 	});
 
 	it("resumes with /workspace intact and the Jupyter session gone", async () => {
-		await activeSandbox().resume();
-		await activeSandbox().waitUntilReady(READY_TIMEOUT);
+		await timed("resume (admission)", () => activeSandbox().resume());
+		await timed("waitUntilReady after resume", () => activeSandbox().waitUntilReady(READY_TIMEOUT));
 		expect(await activeSandbox().getPhase()).toBe(SandboxStatus.Running);
 
 		// Persisted volume survives.
@@ -223,7 +246,9 @@ describe.skipIf(SKIP)("live sandbox: direct create lifecycle", () => {
 	});
 
 	it("kills the sandbox and then reports it as not found", async () => {
-		await activeSandbox().kill({ wait: true, timeout: LIFECYCLE_TIMEOUT });
+		await timed("kill (wait=true)", () =>
+			activeSandbox().kill({ wait: true, timeout: LIFECYCLE_TIMEOUT }),
+		);
 		killed = true;
 
 		await expect(Sandbox.get(name, sdkOptions)).rejects.toBeInstanceOf(SandboxNotFoundError);
@@ -245,29 +270,33 @@ describe.skipIf(SKIP)("live sandbox: warm pool claim", () => {
 		if (config.poolName) {
 			poolName = config.poolName;
 		} else {
-			ephemeralPool = await SandboxPool.create({
-				...sdkOptions,
-				name: ephemeralPoolName,
-				image: sandboxImage,
-				poolSize: ephemeralPoolSize,
-			});
+			ephemeralPool = await timed("SandboxPool.create (admission)", () =>
+				SandboxPool.create({
+					...sdkOptions,
+					name: ephemeralPoolName,
+					image: sandboxImage,
+					poolSize: ephemeralPoolSize,
+				}),
+			);
 			poolName = ephemeralPool.name;
 		}
 
 		const pool = ephemeralPool ?? (await SandboxPool.get(poolName, sdkOptions));
-		const deadline = Date.now() + config.poolReadyTimeout * 1000;
-		while (pool.readyReplicas < 1) {
-			if (Date.now() >= deadline) {
-				throw new Error(
-					`pool '${poolName}' had no ready replica within ${config.poolReadyTimeout}s ` +
-						`(replicas=${pool.replicas}, readyReplicas=${pool.readyReplicas})`,
-				);
+		await timed("pool ready (poll readyReplicas>0)", async () => {
+			const deadline = Date.now() + config.poolReadyTimeout * 1000;
+			while (pool.readyReplicas < 1) {
+				if (Date.now() >= deadline) {
+					throw new Error(
+						`pool '${poolName}' had no ready replica within ${config.poolReadyTimeout}s ` +
+							`(replicas=${pool.replicas}, readyReplicas=${pool.readyReplicas})`,
+					);
+				}
+				// Real delay on purpose: pool readiness is a cluster-side convergence
+				// with no client-side signal to await, so there is no clock to fake.
+				await delay(2000);
+				await pool.refresh();
 			}
-			// Real delay on purpose: pool readiness is a cluster-side convergence
-			// with no client-side signal to await, so there is no clock to fake.
-			await delay(2000);
-			await pool.refresh();
-		}
+		});
 		expect(pool.readyReplicas).toBeGreaterThan(0);
 	});
 
@@ -277,15 +306,20 @@ describe.skipIf(SKIP)("live sandbox: warm pool claim", () => {
 	});
 
 	it("claims a sandbox from the pool and runs code in it", async () => {
-		claimed = await Sandbox.fromPool(poolName, sdkOptions);
-		await claimed.waitUntilReady(READY_TIMEOUT);
+		claimed = await timed("Sandbox.fromPool (claim)", () => Sandbox.fromPool(poolName, sdkOptions));
+		const claimedSandbox = claimed;
+		await timed("waitUntilReady after claim", () => claimedSandbox.waitUntilReady(READY_TIMEOUT));
 		expect(await claimed.getPhase()).toBe(SandboxStatus.Running);
 
-		const result = await claimed.runCode("print(6 * 7)");
+		const result = await timed("runCode in claimed sandbox", () =>
+			claimedSandbox.runCode("print(6 * 7)"),
+		);
 		expect(result.success, `stderr: ${result.stderr}`).toBe(true);
 		expect(result.stdout).toContain("42");
 
-		await claimed.kill({ wait: true, timeout: LIFECYCLE_TIMEOUT });
+		await timed("kill claimed (wait=true)", () =>
+			claimedSandbox.kill({ wait: true, timeout: LIFECYCLE_TIMEOUT }),
+		);
 		claimed = undefined;
 	});
 });
