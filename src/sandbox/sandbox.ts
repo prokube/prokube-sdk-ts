@@ -546,11 +546,17 @@ export class Sandbox {
 	}
 
 	/**
-	 * Warm up the Jupyter kernel by running a marker print until it is
-	 * observable in stdout. Jupyter's ipykernel takes ~1.7s after pod start
-	 * before its first `execute_request` produces visible iopub stdout.
-	 * Without this, the first user `runCode` call after `waitUntilReady`
-	 * can return `success=true` with empty stdout.
+	 * Warm up the sandbox interpreter by running a marker print until the
+	 * marker appears in stdout. The first execution after pod start can race
+	 * a cold interpreter and return `success=true` with empty stdout; without
+	 * this probe, the first user `runCode` call after `waitUntilReady` would
+	 * absorb that race. (Whether the current sandbox agent still exhibits it
+	 * is unverified; the probe is kept as cheap insurance until warmup is
+	 * re-measured against it.)
+	 *
+	 * The check is containment, not equality: the interpreter may append
+	 * unrelated text (e.g. warnings) alongside the marker, and extra output
+	 * does not make the session any less live.
 	 *
 	 * Bounded by `deadline`. Never throws on deadline exceeded — logs a
 	 * warning and returns. Transient gateway timeouts during warmup are retried;
@@ -597,7 +603,7 @@ export class Sandbox {
 				await sleep(Math.min(probeIntervalMs, postErrorRemainingMs));
 				continue;
 			}
-			if (result.stdout.trim() === marker) return;
+			if (result.stdout.includes(marker)) return;
 			this._code.markSessionInvalid();
 
 			const postProbeRemainingMs = deadline - Date.now();
