@@ -16,10 +16,21 @@ describe("SandboxStatus", () => {
 		expect(SandboxStatus.Pending).toBe("Pending");
 		expect(SandboxStatus.Running).toBe("Running");
 		expect(SandboxStatus.Paused).toBe("Paused");
-		expect(SandboxStatus.Bound).toBe("Bound");
 		expect(SandboxStatus.Succeeded).toBe("Succeeded");
 		expect(SandboxStatus.Failed).toBe("Failed");
 		expect(SandboxStatus.Unknown).toBe("Unknown");
+	});
+
+	it("exposes the v0.8 transitional phases", () => {
+		expect(SandboxStatus.Pausing).toBe("Pausing");
+		expect(SandboxStatus.Resuming).toBe("Resuming");
+		expect(SandboxStatus.Deleting).toBe("Deleting");
+	});
+
+	it("still exposes the deprecated Bound member", () => {
+		// v0.8 backends never report it, but removing the member would break
+		// existing call sites that switch on it.
+		expect(SandboxStatus.Bound).toBe("Bound");
 	});
 });
 
@@ -28,6 +39,16 @@ describe("parseStatus", () => {
 		expect(parseStatus("Running")).toBe(SandboxStatus.Running);
 		expect(parseStatus("Pending")).toBe(SandboxStatus.Pending);
 		expect(parseStatus("Paused")).toBe(SandboxStatus.Paused);
+	});
+
+	it("parses the v0.8 transitional phases", () => {
+		expect(parseStatus("Pausing")).toBe(SandboxStatus.Pausing);
+		expect(parseStatus("Resuming")).toBe(SandboxStatus.Resuming);
+		expect(parseStatus("Deleting")).toBe(SandboxStatus.Deleting);
+	});
+
+	it("still parses the legacy Bound phase", () => {
+		expect(parseStatus("Bound")).toBe(SandboxStatus.Bound);
 	});
 
 	it("returns Unknown for unrecognized values", () => {
@@ -60,7 +81,6 @@ describe("parseSandboxInfo", () => {
 				poolName: "gpu-pool",
 				createdAt: "2025-01-01T00:00:00Z",
 				autoIdleTimeoutSeconds: 1800,
-				resumedFromPool: true,
 			},
 			"my-ns",
 		);
@@ -69,13 +89,12 @@ describe("parseSandboxInfo", () => {
 		expect(info.pool).toBe("gpu-pool");
 		expect(info.createdAt).toBe("2025-01-01T00:00:00Z");
 		expect(info.autoIdleTimeoutSeconds).toBe(1800);
-		expect(info.resumedFromPool).toBe(true);
 	});
 
-	it("handles alternative field names (phase, pool, created_at, sandboxName)", () => {
+	it("handles alternative field names (phase, pool, created_at)", () => {
 		const info = parseSandboxInfo(
 			{
-				sandboxName: "alt-name",
+				name: "alt-name",
 				phase: "Paused",
 				pool: "cpu-pool",
 				created_at: "2025-06-01",
@@ -88,6 +107,56 @@ describe("parseSandboxInfo", () => {
 		expect(info.pool).toBe("cpu-pool");
 		expect(info.createdAt).toBe("2025-06-01");
 		expect(info.autoIdleTimeoutSeconds).toBe(900);
+	});
+
+	it("parses a Failed sandbox's lastError in either spelling", () => {
+		const camel = parseSandboxInfo(
+			{ name: "sb", phase: "Failed", lastError: "pvc snapshot rejected" },
+			"ns",
+		);
+		expect(camel.status).toBe(SandboxStatus.Failed);
+		expect(camel.lastError).toBe("pvc snapshot rejected");
+
+		const snake = parseSandboxInfo(
+			{ name: "sb", phase: "Failed", last_error: "workspace purge unconfirmed" },
+			"ns",
+		);
+		expect(snake.lastError).toBe("workspace purge unconfirmed");
+	});
+
+	it("leaves lastError undefined when the backend reports null or omits it", () => {
+		expect(parseSandboxInfo({ name: "sb", phase: "Running" }, "ns").lastError).toBeUndefined();
+		expect(
+			parseSandboxInfo({ name: "sb", phase: "Running", lastError: null }, "ns").lastError,
+		).toBeUndefined();
+	});
+
+	it("parses a Deleting sandbox", () => {
+		expect(parseSandboxInfo({ name: "sb", phase: "Deleting" }, "ns").status).toBe(
+			SandboxStatus.Deleting,
+		);
+	});
+
+	it("leaves the deprecated resumedFromPool undefined instead of throwing", () => {
+		// v0.8 stopped reporting warm-pool resume swaps. Reading the field
+		// must still be safe for existing call sites.
+		expect(
+			parseSandboxInfo({ name: "sb", phase: "Running" }, "ns").resumedFromPool,
+		).toBeUndefined();
+		expect(
+			parseSandboxInfo({ name: "sb", phase: "Running", resumedFromPool: true }, "ns")
+				.resumedFromPool,
+		).toBeUndefined();
+	});
+
+	it("honours the caller's default phase when the body has none", () => {
+		expect(parseSandboxInfo({ name: "sb" }, "ns", SandboxStatus.Pending).status).toBe(
+			SandboxStatus.Pending,
+		);
+	});
+
+	it("throws when the body carries no name", () => {
+		expect(() => parseSandboxInfo({ phase: "Running" }, "ns")).toThrow(/name is missing/);
 	});
 });
 

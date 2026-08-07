@@ -2,13 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PoolExhaustedError, SandboxError } from "../src/common/errors.js";
 import { SandboxStatus } from "../src/sandbox/models.js";
 import { Sandbox } from "../src/sandbox/sandbox.js";
-
-function mockResponse(body: unknown, status = 200): Response {
-	return new Response(JSON.stringify(body), {
-		status,
-		headers: { "content-type": "application/json" },
-	});
-}
+import { apiCalls, mockResponse, versionResponse, warmupProbeResponse } from "./helpers.js";
 
 const defaultConfig = {
 	apiUrl: "https://example.com/pkui",
@@ -38,7 +32,9 @@ describe("Sandbox", () => {
 	describe("fromPool", () => {
 		it("claims sandbox from pool", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse({ name: "sb-pool-1", status: "Running" }));
+			mockFetch.mockImplementation(async () =>
+				mockResponse({ name: "sb-pool-1", status: "Running" }),
+			);
 
 			const sbx = await Sandbox.fromPool("gpu-pool", defaultConfig);
 			expect(sbx.name).toBe("sb-pool-1");
@@ -49,14 +45,16 @@ describe("Sandbox", () => {
 			process.env.KUBERNETES_SERVICE_HOST = "10.0.0.1";
 			process.env.PROKUBE_WORKSPACE = "test-ns";
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse({ name: "sb-pool-1", status: "Running" }));
+			mockFetch.mockImplementation(async () =>
+				mockResponse({ name: "sb-pool-1", status: "Running" }),
+			);
 
 			const sbx = await Sandbox.fromPool("gpu-pool");
 
-			const url = mockFetch.mock.calls[0][0] as string;
-			const headers = mockFetch.mock.calls[0][1]?.headers as Record<string, string>;
+			const claim = apiCalls(mockFetch)[0];
+			const headers = claim[1]?.headers as Record<string, string>;
 			expect(sbx.name).toBe("sb-pool-1");
-			expect(url).toBe(
+			expect(String(claim[0])).toBe(
 				"http://agentgateway-proxy.agentgateway-system.svc.cluster.local/_platform/sandbox/test-ns/sandboxes/claim",
 			);
 			expect(headers["x-api-key"]).toBeUndefined();
@@ -65,36 +63,37 @@ describe("Sandbox", () => {
 
 		it("sends volumeSize when provided", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockImplementation(async () => mockResponse({ name: "sb-1", status: "Running" }));
 
 			await Sandbox.fromPool("pool", { ...defaultConfig, volumeSize: "20Gi" });
-			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			const body = JSON.parse(apiCalls(mockFetch)[0][1]?.body as string);
 			expect(body.volumeSize).toBe("20Gi");
 		});
 
 		it("sends autoIdleTimeoutSeconds when provided", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockImplementation(async () => mockResponse({ name: "sb-1", status: "Running" }));
 
 			const sbx = await Sandbox.fromPool("pool", { ...defaultConfig, autoIdleTimeoutSeconds: 900 });
-			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			const body = JSON.parse(apiCalls(mockFetch)[0][1]?.body as string);
 			expect(body.autoIdleTimeoutSeconds).toBe(900);
 			expect(sbx.autoIdleTimeoutSeconds).toBe(900);
 		});
 
 		it("surfaces retryable pool exhaustion distinctly", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(
-				new Response(
-					JSON.stringify({
-						reason: "pool_exhausted",
-						detail: "No warm pool capacity is currently available",
-					}),
-					{
-						status: 429,
-						headers: { "content-type": "application/json", "retry-after": "20" },
-					},
-				),
+			mockFetch.mockImplementation(
+				async () =>
+					new Response(
+						JSON.stringify({
+							reason: "pool_exhausted",
+							detail: "No warm pool capacity is currently available",
+						}),
+						{
+							status: 429,
+							headers: { "content-type": "application/json", "retry-after": "20" },
+						},
+					),
 			);
 
 			try {
@@ -114,7 +113,7 @@ describe("Sandbox", () => {
 	describe("create", () => {
 		it("creates sandbox with image", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse({ name: "my-sb", status: "Pending" }));
+			mockFetch.mockImplementation(async () => mockResponse({ name: "my-sb", status: "Pending" }));
 
 			const sbx = await Sandbox.create("python:3.10", {
 				...defaultConfig,
@@ -126,28 +125,29 @@ describe("Sandbox", () => {
 
 		it("sends volumeSize when provided", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", status: "Pending" }));
+			mockFetch.mockImplementation(async () => mockResponse({ name: "sb-1", status: "Pending" }));
 
 			await Sandbox.create("python:3.10", {
 				...defaultConfig,
 				volumeSize: "10Gi",
 			});
-			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			const body = JSON.parse(apiCalls(mockFetch)[0][1]?.body as string);
 			expect(body.volumeSize).toBe("10Gi");
 		});
 
 		it("omits new optional fields when not provided", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", status: "Pending" }));
+			mockFetch.mockImplementation(async () => mockResponse({ name: "sb-1", status: "Pending" }));
 
 			await Sandbox.create("python:3.10", {
 				...defaultConfig,
 				name: "sb-1",
 			});
 
-			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			const body = JSON.parse(apiCalls(mockFetch)[0][1]?.body as string);
 			expect(body).not.toHaveProperty("cpu");
 			expect(body).not.toHaveProperty("memory");
+			expect(body).not.toHaveProperty("resources");
 			expect(body).not.toHaveProperty("allowInternetAccess");
 			expect(body).not.toHaveProperty("autoIdleTimeoutSeconds");
 			expect(body).not.toHaveProperty("envVars");
@@ -156,7 +156,7 @@ describe("Sandbox", () => {
 
 		it("forwards resources, allowInternetAccess, envVars, and secretRefs", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", status: "Pending" }));
+			mockFetch.mockImplementation(async () => mockResponse({ name: "sb-1", status: "Pending" }));
 
 			await Sandbox.create("python:3.10", {
 				...defaultConfig,
@@ -170,9 +170,13 @@ describe("Sandbox", () => {
 				secretRefs: ["my-secret"],
 			});
 
-			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			const body = JSON.parse(apiCalls(mockFetch)[0][1]?.body as string);
+			// Both wire shapes: the internal route reads the nested `resources`
+			// object, the external API-key route reads the flat keys. Sending
+			// only one silently drops sizing on the other route.
 			expect(body.cpu).toBe("2");
 			expect(body.memory).toBe("4Gi");
+			expect(body.resources).toEqual({ cpu: "2", memory: "4Gi" });
 			expect(body.allowInternetAccess).toBe(true);
 			expect(body.envVars).toEqual([
 				{ name: "FOO", value: "bar" },
@@ -181,16 +185,31 @@ describe("Sandbox", () => {
 			expect(body.secretRefs).toEqual(["my-secret"]);
 		});
 
+		it("forwards a partially specified resources object in both shapes", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockImplementation(async () => mockResponse({ name: "sb-1", status: "Pending" }));
+
+			await Sandbox.create("python:3.10", {
+				...defaultConfig,
+				resources: { cpu: "500m" },
+			});
+
+			const body = JSON.parse(apiCalls(mockFetch)[0][1]?.body as string);
+			expect(body.cpu).toBe("500m");
+			expect(body.resources).toEqual({ cpu: "500m" });
+			expect(body).not.toHaveProperty("memory");
+		});
+
 		it("forwards autoIdleTimeoutSeconds", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", status: "Pending" }));
+			mockFetch.mockImplementation(async () => mockResponse({ name: "sb-1", status: "Pending" }));
 
 			const sbx = await Sandbox.create("python:3.10", {
 				...defaultConfig,
 				autoIdleTimeoutSeconds: 1800,
 			});
 
-			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
+			const body = JSON.parse(apiCalls(mockFetch)[0][1]?.body as string);
 			expect(body.autoIdleTimeoutSeconds).toBe(1800);
 			expect(sbx.autoIdleTimeoutSeconds).toBe(1800);
 		});
@@ -199,7 +218,7 @@ describe("Sandbox", () => {
 	describe("get / connect", () => {
 		it("gets existing sandbox", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(
+			mockFetch.mockImplementation(async () =>
 				mockResponse({
 					name: "existing-sb",
 					status: "Running",
@@ -220,7 +239,7 @@ describe("Sandbox", () => {
 	describe("list", () => {
 		it("returns empty list", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse({ sandboxes: [], total: 0 }));
+			mockFetch.mockImplementation(async () => mockResponse({ sandboxes: [], total: 0 }));
 
 			const result = await Sandbox.list(defaultConfig);
 			expect(result).toEqual([]);
@@ -228,7 +247,7 @@ describe("Sandbox", () => {
 
 		it("returns multiple sandboxes", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(
+			mockFetch.mockImplementation(async () =>
 				mockResponse({
 					sandboxes: [
 						{ name: "sb-1", status: "Running" },
@@ -246,7 +265,7 @@ describe("Sandbox", () => {
 
 		it("filters by phase", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(
+			mockFetch.mockImplementation(async () =>
 				mockResponse({
 					sandboxes: [
 						{ name: "sb-1", status: "Running" },
@@ -264,12 +283,30 @@ describe("Sandbox", () => {
 			expect(result).toHaveLength(2);
 			expect(result.every((s) => s.status === SandboxStatus.Paused)).toBe(true);
 		});
+
+		it("filters by a transitional phase", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockImplementation(async () =>
+				mockResponse({
+					sandboxes: [
+						{ name: "sb-1", phase: "Pausing" },
+						{ name: "sb-2", phase: "Resuming" },
+						{ name: "sb-3", phase: "Deleting" },
+					],
+					total: 3,
+				}),
+			);
+
+			const result = await Sandbox.list({ ...defaultConfig, phase: SandboxStatus.Resuming });
+			expect(result.map((s) => s.name)).toEqual(["sb-2"]);
+		});
 	});
 
 	describe("runCode", () => {
 		it("executes code and returns result", async () => {
 			const mockFetch = vi.mocked(fetch);
 			// First call for fromPool
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			// Second call for exec
 			mockFetch.mockResolvedValueOnce(
@@ -291,6 +328,7 @@ describe("Sandbox", () => {
 
 		it("maintains session across calls", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			mockFetch.mockResolvedValueOnce(
 				mockResponse({ stdout: "", success: true, session_id: "sess-1" }),
@@ -303,12 +341,13 @@ describe("Sandbox", () => {
 			await sbx.runCode("x = 42");
 			await sbx.runCode("print(x)");
 
-			const secondExecBody = JSON.parse(mockFetch.mock.calls[2][1]?.body as string);
+			const secondExecBody = JSON.parse(apiCalls(mockFetch)[2][1]?.body as string);
 			expect(secondExecBody.session_id).toBe("sess-1");
 		});
 
 		it("reset_session sends flag", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			mockFetch.mockResolvedValueOnce(
 				mockResponse({ stdout: "", success: true, session_id: "sess-1" }),
@@ -322,7 +361,7 @@ describe("Sandbox", () => {
 			sbx.resetSession();
 			await sbx.runCode("print(1)");
 
-			const resetBody = JSON.parse(mockFetch.mock.calls[2][1]?.body as string);
+			const resetBody = JSON.parse(apiCalls(mockFetch)[2][1]?.body as string);
 			expect(resetBody.reset_session).toBe(true);
 		});
 	});
@@ -330,6 +369,7 @@ describe("Sandbox", () => {
 	describe("commands", () => {
 		it("runs shell command", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			mockFetch.mockResolvedValueOnce(
 				mockResponse({ stdout: "hello\n", stderr: "", exitCode: 0, durationMs: 50 }),
@@ -345,18 +385,20 @@ describe("Sandbox", () => {
 	describe("files", () => {
 		it("writes file", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			mockFetch.mockResolvedValueOnce(mockResponse({}));
 
 			const sbx = await Sandbox.fromPool("pool", defaultConfig);
 			await sbx.files.write("/workspace/test.txt", "hello");
 
-			const url = mockFetch.mock.calls[1][0] as string;
+			const url = apiCalls(mockFetch)[1][0] as string;
 			expect(url).toContain("/files");
 		});
 
 		it("writes multiple files in a batch", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			mockFetch.mockResolvedValueOnce(
 				mockResponse({
@@ -383,10 +425,10 @@ describe("Sandbox", () => {
 				"/workspace/b.bin",
 			]);
 
-			const url = mockFetch.mock.calls[1][0] as string;
+			const url = apiCalls(mockFetch)[1][0] as string;
 			expect(url).toContain("/files/batch");
 
-			const body = JSON.parse(mockFetch.mock.calls[1][1]?.body as string);
+			const body = JSON.parse(apiCalls(mockFetch)[1][1]?.body as string);
 			expect(body.items).toEqual([
 				{
 					path: "/workspace/a.txt",
@@ -403,6 +445,7 @@ describe("Sandbox", () => {
 
 		it("returns partial failures from batch writes", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			mockFetch.mockResolvedValueOnce(
 				mockResponse({
@@ -435,6 +478,7 @@ describe("Sandbox", () => {
 
 		it("reads file", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			mockFetch.mockResolvedValueOnce(new Response(new Uint8Array([104, 105]), { status: 200 }));
 
@@ -445,6 +489,7 @@ describe("Sandbox", () => {
 
 		it("lists files", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			mockFetch.mockResolvedValueOnce(
 				mockResponse({
@@ -462,19 +507,21 @@ describe("Sandbox", () => {
 	describe("kill", () => {
 		it("kills sandbox", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
 			const sbx = await Sandbox.fromPool("pool", defaultConfig);
 			await sbx.kill();
 
-			const url = mockFetch.mock.calls[1][0] as string;
+			const url = apiCalls(mockFetch)[1][0] as string;
 			expect(url).toContain("/sandboxes/sb-1");
-			expect(mockFetch.mock.calls[1][1]?.method).toBe("DELETE");
+			expect(apiCalls(mockFetch)[1][1]?.method).toBe("DELETE");
 		});
 
 		it("is idempotent", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
@@ -482,11 +529,12 @@ describe("Sandbox", () => {
 			await sbx.kill();
 			await sbx.kill(); // Should not throw
 			// Only one DELETE call
-			expect(mockFetch.mock.calls.filter((c) => c[1]?.method === "DELETE")).toHaveLength(1);
+			expect(apiCalls(mockFetch).filter((c) => c[1]?.method === "DELETE")).toHaveLength(1);
 		});
 
 		it("prevents further operations after kill", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
@@ -502,8 +550,10 @@ describe("Sandbox", () => {
 	describe("pause / resume", () => {
 		it("pauses running sandbox", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
-			mockFetch.mockResolvedValueOnce(mockResponse({}));
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Pausing" }, 202));
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Paused" }));
 
 			const sbx = await Sandbox.fromPool("pool", defaultConfig);
 			await sbx.pause();
@@ -512,23 +562,27 @@ describe("Sandbox", () => {
 
 		it("resumes paused sandbox", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
-			mockFetch.mockResolvedValueOnce(mockResponse({})); // pause
-			mockFetch.mockResolvedValueOnce(mockResponse({})); // resume
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Pausing" }, 202));
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Paused" }));
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Resuming" }, 202));
 
 			const sbx = await Sandbox.fromPool("pool", defaultConfig);
 			await sbx.pause();
 			await sbx.resume();
-			expect(sbx.status).toBe(SandboxStatus.Running);
+			// v0.8 resume is admission-only: it reports Resuming and does not
+			// block. Call waitUntilReady() to reach Running.
+			expect(sbx.status).toBe(SandboxStatus.Resuming);
 		});
 
 		it("resume preserves backend status", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
-			mockFetch.mockResolvedValueOnce(mockResponse({})); // pause
-			mockFetch.mockResolvedValueOnce(
-				mockResponse({ name: "sb-1", phase: "Pending", resumedFromPool: false }),
-			);
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Pausing" }, 202));
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Paused" }));
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Pending" }, 202));
 
 			const sbx = await Sandbox.fromPool("pool", defaultConfig);
 			await sbx.pause();
@@ -538,9 +592,11 @@ describe("Sandbox", () => {
 
 		it("resume preserves known autoIdleTimeoutSeconds when response omits it", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
-			mockFetch.mockResolvedValueOnce(mockResponse({})); // pause
-			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Running" }));
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Pausing" }, 202));
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Paused" }));
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Resuming" }, 202));
 
 			const sbx = await Sandbox.fromPool("pool", { ...defaultConfig, autoIdleTimeoutSeconds: 900 });
 			await sbx.pause();
@@ -550,8 +606,9 @@ describe("Sandbox", () => {
 
 		it("pause on killed sandbox throws", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
-			mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+			mockFetch.mockResolvedValueOnce(new Response(null, { status: 202 }));
 
 			const sbx = await Sandbox.fromPool("pool", defaultConfig);
 			await sbx.kill();
@@ -562,6 +619,7 @@ describe("Sandbox", () => {
 	describe("refresh", () => {
 		it("preserves known autoIdleTimeoutSeconds when response omits it", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 
@@ -572,38 +630,15 @@ describe("Sandbox", () => {
 	});
 
 	describe("waitUntilReady", () => {
-		// Helper: respond to a probe call by echoing back the marker.
-		// The probe sends code like `print("__pk_warmup_<uuid>__")`.
-		// We parse the marker out of the request body and echo it back as
-		// stdout so the warmup loop's `stdout.trim() === marker` check passes.
-		// If the regex doesn't match we throw rather than fall back to an empty
-		// string — an empty marker would silently make the probe succeed
-		// (since both sides of `stdout.trim() === marker` would be "") and
-		// mask regressions in the probe request format.
-		function probeRespond(body: string): Response {
-			const parsed = JSON.parse(body);
-			const code = parsed.code as string;
-			const match = code.match(/print\("(__pk_warmup_[a-f0-9]+__)"\)/);
-			if (!match) {
-				throw new Error(`Unexpected probe request body: ${body}`);
-			}
-			return mockResponse({
-				stdout: `${match[1]}\n`,
-				stderr: "",
-				success: true,
-				durationMs: 5,
-				session_id: "sess-warm",
-			});
-		}
-
 		it("returns immediately if already running", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			// refresh call
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			// warmup probe call
 			mockFetch.mockImplementationOnce(async (_url, init) =>
-				probeRespond((init as RequestInit).body as string),
+				warmupProbeResponse((init as RequestInit).body as string),
 			);
 
 			const sbx = await Sandbox.fromPool("pool", defaultConfig);
@@ -612,6 +647,7 @@ describe("Sandbox", () => {
 
 		it("throws on terminal state", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Pending" }));
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Failed" }));
 
@@ -649,9 +685,11 @@ describe("Sandbox", () => {
 
 			try {
 				const mockFetch = vi.mocked(fetch);
+				mockFetch.mockResolvedValueOnce(versionResponse());
 				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
-				mockFetch.mockResolvedValueOnce(mockResponse({})); // pause
-				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Pending" }));
+				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Pausing" }, 202));
+				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Paused" }));
+				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Pending" }, 202));
 				mockFetch.mockImplementation(async () => mockResponse({ name: "sb-1", status: "Pending" }));
 
 				const sbx = await Sandbox.fromPool("pool", defaultConfig);
@@ -675,11 +713,12 @@ describe("Sandbox", () => {
 
 			try {
 				const mockFetch = vi.mocked(fetch);
+				mockFetch.mockResolvedValueOnce(versionResponse());
 				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Pending" }));
 				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Pending" }));
 				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 				mockFetch.mockImplementationOnce(async (_url, init) =>
-					probeRespond((init as RequestInit).body as string),
+					warmupProbeResponse((init as RequestInit).body as string),
 				);
 
 				const sbx = await Sandbox.create("img", { ...defaultConfig, name: "sb-1" });
@@ -695,6 +734,7 @@ describe("Sandbox", () => {
 
 		it("waitUntilReady_warms_kernel_on_cold_start", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			// create (Pending)
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Pending" }));
 			// first refresh: still Pending
@@ -713,17 +753,13 @@ describe("Sandbox", () => {
 			);
 			// second probe: marker echoed back
 			mockFetch.mockImplementationOnce(async (_url, init) =>
-				probeRespond((init as RequestInit).body as string),
+				warmupProbeResponse((init as RequestInit).body as string),
 			);
 
 			const sbx = await Sandbox.create("img", { ...defaultConfig, name: "sb-1" });
 			await sbx.waitUntilReady(30);
 
-			// Count code execution calls (probes). Exec calls are POST to /exec.
-			const execCalls = mockFetch.mock.calls.filter((c) => {
-				const url = c[0] as string;
-				return url.includes("/exec");
-			});
+			const execCalls = mockFetch.mock.calls.filter((c) => String(c[0]).includes("/exec"));
 			expect(execCalls.length).toBeGreaterThanOrEqual(2);
 			const retryBody = JSON.parse(execCalls[1][1]?.body as string);
 			expect(retryBody.session_id).toBeUndefined();
@@ -732,36 +768,37 @@ describe("Sandbox", () => {
 
 		it("waitUntilReady_warm_kernel_no_extra_latency", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			// fromPool
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			// refresh: Running
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			// single probe returning marker
 			mockFetch.mockImplementationOnce(async (_url, init) =>
-				probeRespond((init as RequestInit).body as string),
+				warmupProbeResponse((init as RequestInit).body as string),
 			);
 
 			const sbx = await Sandbox.fromPool("pool", defaultConfig);
 			await sbx.waitUntilReady(30);
 
-			const execCalls = mockFetch.mock.calls.filter((c) => {
-				const url = c[0] as string;
-				return url.includes("/exec");
-			});
-			expect(execCalls.length).toBe(1);
+			expect(mockFetch.mock.calls.filter((c) => String(c[0]).includes("/exec"))).toHaveLength(1);
 		});
 
-		it("waitUntilReady_skips_warmup_once_after_pool_resume", async () => {
+		it("always warms the kernel after a resume", async () => {
+			// v0.8 dropped the `resumedFromPool` hint, so there is no longer a
+			// "skip the warmup once" fast path: a resumed sandbox always gets a
+			// fresh pod and therefore a cold Jupyter kernel.
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
-			mockFetch.mockResolvedValueOnce(mockResponse({})); // pause
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Pausing" }, 202));
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Paused" }));
 			mockFetch.mockResolvedValueOnce(
-				mockResponse({ name: "sb-1", phase: "Running", resumedFromPool: true }),
+				mockResponse({ name: "sb-1", phase: "Running", resumedFromPool: true }, 202),
 			);
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
-			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			mockFetch.mockImplementationOnce(async (_url, init) =>
-				probeRespond((init as RequestInit).body as string),
+				warmupProbeResponse((init as RequestInit).body as string),
 			);
 
 			const sbx = await Sandbox.fromPool("pool", defaultConfig);
@@ -769,42 +806,27 @@ describe("Sandbox", () => {
 			await sbx.resume();
 			await sbx.waitUntilReady(5);
 
-			let execCalls = mockFetch.mock.calls.filter((c) => {
-				const url = c[0] as string;
-				return url.includes("/exec");
-			});
-			expect(execCalls).toHaveLength(0);
-
-			await sbx.waitUntilReady(5);
-			execCalls = mockFetch.mock.calls.filter((c) => {
-				const url = c[0] as string;
-				return url.includes("/exec");
-			});
-			expect(execCalls).toHaveLength(1);
+			expect(mockFetch.mock.calls.filter((c) => String(c[0]).includes("/exec"))).toHaveLength(1);
 		});
 
-		it("waitUntilReady_does_not_skip_warmup_for_fromPool_claim", async () => {
+		it("warms the kernel after a fromPool claim", async () => {
 			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValueOnce(
-				mockResponse({ name: "sb-1", status: "Running", resumedFromPool: true }),
-			);
+			mockFetch.mockResolvedValueOnce(versionResponse());
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			mockFetch.mockImplementationOnce(async (_url, init) =>
-				probeRespond((init as RequestInit).body as string),
+				warmupProbeResponse((init as RequestInit).body as string),
 			);
 
 			const sbx = await Sandbox.fromPool("pool", defaultConfig);
 			await sbx.waitUntilReady(5);
 
-			const execCalls = mockFetch.mock.calls.filter((c) => {
-				const url = c[0] as string;
-				return url.includes("/exec");
-			});
-			expect(execCalls).toHaveLength(1);
+			expect(mockFetch.mock.calls.filter((c) => String(c[0]).includes("/exec"))).toHaveLength(1);
 		});
 
 		it("waitUntilReady_warmup_timeout_does_not_throw", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			// fromPool
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			// refresh: Running
@@ -833,23 +855,16 @@ describe("Sandbox", () => {
 
 		it("waitUntilReady_retries_warmup_gateway_timeout", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			// fromPool
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			// refresh: Running
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			// first warmup probe times out at Agent Gateway, second succeeds
 			mockFetch.mockResolvedValueOnce(mockResponse("upstream request timeout", 504));
-			mockFetch.mockImplementationOnce(async (input, init) => {
-				const body = JSON.parse(String(init?.body ?? "{}"));
-				const match = String(body.code ?? "").match(/print\("(__pk_warmup_[a-f0-9]+__)"\)/);
-				return mockResponse({
-					stdout: `${match?.[1] ?? ""}\n`,
-					stderr: "",
-					success: true,
-					durationMs: 5,
-					session_id: "sess-warm",
-				});
-			});
+			mockFetch.mockImplementationOnce(async (_url, init) =>
+				warmupProbeResponse((init as RequestInit).body as string),
+			);
 
 			const sbx = await Sandbox.fromPool("pool", defaultConfig);
 			await expect(sbx.waitUntilReady(30)).resolves.toBeUndefined();
@@ -860,6 +875,7 @@ describe("Sandbox", () => {
 			// probe must propagate the exception rather than swallow it — that
 			// is a real failure, not a cold-kernel race.
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			// fromPool
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			// refresh: Running
@@ -875,13 +891,14 @@ describe("Sandbox", () => {
 	describe("Symbol.asyncDispose", () => {
 		it("kills sandbox on dispose", async () => {
 			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
-			mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+			mockFetch.mockResolvedValueOnce(new Response(null, { status: 202 }));
 
 			const sbx = await Sandbox.fromPool("pool", defaultConfig);
 			await sbx[Symbol.asyncDispose]();
 
-			expect(mockFetch.mock.calls.filter((c) => c[1]?.method === "DELETE")).toHaveLength(1);
+			expect(apiCalls(mockFetch).filter((c) => c[1]?.method === "DELETE")).toHaveLength(1);
 		});
 	});
 });
