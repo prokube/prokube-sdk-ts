@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -33,11 +33,7 @@ describe("check-dts helpers", () => {
 			type Baz = import("../baz.js").Baz;
 		`;
 
-		expect(findRelativeSpecifiers(source)).toEqual([
-			"./foo.js",
-			"./bar.js",
-			"../baz.js",
-		]);
+		expect(findRelativeSpecifiers(source)).toEqual(["./foo.js", "./bar.js", "../baz.js"]);
 	});
 
 	it("accepts runtime extensions that map to declaration files", () => {
@@ -54,10 +50,7 @@ describe("check-dts helpers", () => {
 		const dir = createTempDir();
 		const declarationFile = join(dir, "index.d.ts");
 
-		writeFileSync(
-			declarationFile,
-			'type Foo = import("./types.js").Foo;\nimport "./setup.js";\n',
-		);
+		writeFileSync(declarationFile, 'type Foo = import("./types.js").Foo;\nimport "./setup.js";\n');
 		writeFileSync(join(dir, "types.d.ts"), "export interface Foo {}\n");
 		writeFileSync(join(dir, "setup.d.ts"), "export {}\n");
 

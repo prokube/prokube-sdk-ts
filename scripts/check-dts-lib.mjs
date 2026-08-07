@@ -102,9 +102,7 @@ export function getDeclarationRoot(file, packageRoot = resolve(".")) {
 		relativeFile.startsWith(`..${sep}`) ||
 		relativeFile === ".."
 	) {
-		throw new Error(
-			`Cannot determine declaration root for ${file} relative to ${packageRoot}.`,
-		);
+		throw new Error(`Cannot determine declaration root for ${file} relative to ${packageRoot}.`);
 	}
 
 	if (!relativeFile.includes(sep)) {
@@ -126,9 +124,7 @@ export function validateDeclarationFile(file, declarationRoot = getDeclarationRo
 
 	for (const specifier of findRelativeSpecifiers(source)) {
 		const paths = getDeclarationCandidatePaths(baseDir, specifier);
-		const validPaths = [...new Set(paths)].filter((path) =>
-			isWithinRoot(path, declarationRoot),
-		);
+		const validPaths = [...new Set(paths)].filter((path) => isWithinRoot(path, declarationRoot));
 
 		if (!validPaths.some((path) => existsSync(path))) {
 			throw new Error(`Broken declaration import in ${file}: ${specifier}`);
