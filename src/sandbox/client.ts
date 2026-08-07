@@ -254,25 +254,14 @@ export class SandboxClient {
 	// ---- Pause / Resume ----
 
 	/**
-	 * Pause a running sandbox.
+	 * Pause a running sandbox and return the accepted admission body.
 	 *
 	 * The backend accepts the request with HTTP 202 and reports phase
 	 * `Pausing` until its worker settles the sandbox on `Paused`; poll
-	 * {@link get} to observe the final phase.
-	 *
-	 * Use {@link pauseInfo} when you need the admission body.
-	 */
-	async pause(name: string): Promise<void> {
-		await this.pauseInfo(name);
-	}
-
-	/**
-	 * Pause a running sandbox and return the accepted admission body.
-	 *
-	 * Same request as {@link pause}; the phase in the returned
+	 * {@link get} to observe the final phase. The phase in the returned
 	 * {@link SandboxInfo} is the transitional `Pausing`, not the settled one.
 	 */
-	async pauseInfo(name: string): Promise<SandboxInfo> {
+	async pause(name: string): Promise<SandboxInfo> {
 		try {
 			const data = (await this.http.post(this.sandboxSubPath(name, "pause"))) as Record<
 				string,
@@ -288,24 +277,14 @@ export class SandboxClient {
 	}
 
 	/**
-	 * Resume a paused sandbox.
+	 * Resume a paused sandbox and return the accepted admission body.
 	 *
 	 * The backend accepts the request with HTTP 202 and reports phase
 	 * `Resuming` until the new pod is up; poll {@link get} until `Running`.
-	 *
-	 * Use {@link resumeInfo} when you need the admission body.
+	 * The phase in the returned {@link SandboxInfo} is the transitional
+	 * `Resuming`.
 	 */
-	async resume(name: string): Promise<void> {
-		await this.resumeInfo(name);
-	}
-
-	/**
-	 * Resume a paused sandbox and return the accepted admission body.
-	 *
-	 * Same request as {@link resume}; the phase in the returned
-	 * {@link SandboxInfo} is the transitional `Resuming`.
-	 */
-	async resumeInfo(name: string): Promise<SandboxInfo> {
+	async resume(name: string): Promise<SandboxInfo> {
 		try {
 			const data = (await this.http.post(this.sandboxSubPath(name, "resume"))) as Record<
 				string,
@@ -318,6 +297,11 @@ export class SandboxClient {
 			}
 			throw e;
 		}
+	}
+
+	/** @deprecated Use {@link resume}, which now returns the admission body. */
+	async resumeInfo(name: string): Promise<SandboxInfo> {
+		return this.resume(name);
 	}
 
 	// ---- Execution ----

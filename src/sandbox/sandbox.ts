@@ -397,7 +397,7 @@ export class Sandbox {
 	 */
 	async pause(options: PauseOptions = {}): Promise<void> {
 		this.checkUsable();
-		const info = await this._client.pauseInfo(this._name);
+		const info = await this._client.pause(this._name);
 		this._status = info.status;
 		this._lastError = info.lastError;
 		// Pausing deletes the underlying pod, so any existing Jupyter session
@@ -470,7 +470,7 @@ export class Sandbox {
 	 */
 	async resume(): Promise<void> {
 		this.checkUsable();
-		const info = await this._client.resumeInfo(this._name);
+		const info = await this._client.resume(this._name);
 		this._status = info.status;
 		this._lastError = info.lastError;
 		if (info.image) this._image = info.image;

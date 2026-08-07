@@ -72,7 +72,7 @@ describe("public API surface", () => {
 		}
 	});
 
-	it("keeps SandboxClient.pause/resume resolving to void, with *Info for the body", async () => {
+	it("SandboxClient.pause/resume return the admission body (Python parity; typed-void wrappers must migrate)", async () => {
 		const fetchMock = vi.fn(
 			async () =>
 				new Response(JSON.stringify({ name: "sb-1", phase: "Pausing" }), {
@@ -91,16 +91,16 @@ describe("public API surface", () => {
 				false,
 			);
 
-			// Type-level pin: these signatures fail to compile if the return
-			// type widens away from Promise<void>, which is what pre-0.8 call
-			// sites were written against.
-			const pause: (name: string) => Promise<void> = client.pause.bind(client);
-			const resume: (name: string) => Promise<void> = client.resume.bind(client);
-			expect(await pause("sb-1")).toBeUndefined();
-			expect(await resume("sb-1")).toBeUndefined();
+			// v0.8 deliberate break, mirroring the Python SDK's
+			// `pause/resume -> SandboxInfo` change in its 0.2.0 release:
+			// callers that only `await` are unaffected; wrappers annotated as
+			// `Promise<void>` must drop the annotation or ignore the body.
+			const pauseInfo: (name: string) => Promise<sdk.SandboxInfo> = client.pause.bind(client);
+			const resumeInfo: (name: string) => Promise<sdk.SandboxInfo> = client.resume.bind(client);
+			expect((await pauseInfo("sb-1")).name).toBe("sb-1");
+			expect((await resumeInfo("sb-1")).name).toBe("sb-1");
 
-			// The admission bodies live on the *Info variants.
-			expect((await client.pauseInfo("sb-1")).name).toBe("sb-1");
+			// Pre-0.8 deprecated alias survives.
 			expect((await client.resumeInfo("sb-1")).name).toBe("sb-1");
 		} finally {
 			vi.unstubAllGlobals();

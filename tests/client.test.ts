@@ -422,50 +422,57 @@ describe("SandboxClient", () => {
 	});
 
 	describe("pause/resume", () => {
-		it("pause sends POST to /pause and resolves with undefined", async () => {
+		it("pause returns the accepted Sandbox body", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", phase: "Pausing" }, 202));
 
 			const client = new SandboxClient(makeConfig());
-			const result = await client.pause("sb-1");
-
-			expect(mockFetch.mock.calls[0][0] as string).toContain("/sandboxes/sb-1/pause");
-			// Pre-0.8 userspace signature: Promise<void>, not the admission body.
-			expect(result).toBeUndefined();
-		});
-
-		it("pauseInfo returns the accepted Sandbox body", async () => {
-			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", phase: "Pausing" }, 202));
-
-			const client = new SandboxClient(makeConfig());
-			const info = await client.pauseInfo("sb-1");
+			const info = await client.pause("sb-1");
 
 			expect(mockFetch.mock.calls[0][0] as string).toContain("/sandboxes/sb-1/pause");
 			expect(info.name).toBe("sb-1");
 			expect(info.status).toBe(SandboxStatus.Pausing);
 		});
 
-		it("pauseInfo defaults to Pausing when the body omits the phase", async () => {
+		it("pause defaults to Pausing when the body omits the phase", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1" }, 202));
 
 			const client = new SandboxClient(makeConfig());
-			expect((await client.pauseInfo("sb-1")).status).toBe(SandboxStatus.Pausing);
+			expect((await client.pause("sb-1")).status).toBe(SandboxStatus.Pausing);
 		});
 
-		it("resume sends POST to /resume and resolves with undefined", async () => {
+		it("resume returns the accepted Sandbox body", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", phase: "Resuming" }, 202));
 
 			const client = new SandboxClient(makeConfig());
-			const result = await client.resume("sb-1");
+			const info = await client.resume("sb-1");
 
 			expect(mockFetch.mock.calls[0][0] as string).toContain("/sandboxes/sb-1/resume");
-			expect(result).toBeUndefined();
+			expect(info.name).toBe("sb-1");
+			expect(info.status).toBe(SandboxStatus.Resuming);
 		});
 
-		it("resumeInfo returns the accepted Sandbox body", async () => {
+		it("resume defaults to Resuming when the body omits the phase", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1" }, 202));
+
+			const client = new SandboxClient(makeConfig());
+			expect((await client.resume("sb-1")).status).toBe(SandboxStatus.Resuming);
+		});
+
+		it("resume carries lastError through", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(
+				mockResponse({ name: "sb-1", phase: "Failed", lastError: "pvc restore failed" }, 202),
+			);
+
+			const client = new SandboxClient(makeConfig());
+			expect((await client.resume("sb-1")).lastError).toBe("pvc restore failed");
+		});
+
+		it("resumeInfo stays as a deprecated alias for resume", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", phase: "Resuming" }, 202));
 
@@ -473,26 +480,7 @@ describe("SandboxClient", () => {
 			const info = await client.resumeInfo("sb-1");
 
 			expect(mockFetch.mock.calls[0][0] as string).toContain("/sandboxes/sb-1/resume");
-			expect(info.name).toBe("sb-1");
 			expect(info.status).toBe(SandboxStatus.Resuming);
-		});
-
-		it("resumeInfo defaults to Resuming when the body omits the phase", async () => {
-			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1" }, 202));
-
-			const client = new SandboxClient(makeConfig());
-			expect((await client.resumeInfo("sb-1")).status).toBe(SandboxStatus.Resuming);
-		});
-
-		it("resumeInfo carries lastError through", async () => {
-			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(
-				mockResponse({ name: "sb-1", phase: "Failed", lastError: "pvc restore failed" }, 202),
-			);
-
-			const client = new SandboxClient(makeConfig());
-			expect((await client.resumeInfo("sb-1")).lastError).toBe("pvc restore failed");
 		});
 
 		it("pause throws SandboxError on 409", async () => {
@@ -503,12 +491,12 @@ describe("SandboxClient", () => {
 			await expect(client.pause("sb-1")).rejects.toThrow(SandboxError);
 		});
 
-		it("pauseInfo throws SandboxError on 409", async () => {
+		it("pause 409 maps to SandboxError with the not-running hint", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValue(mockResponse({ detail: "Not running" }, 409));
 
 			const client = new SandboxClient(makeConfig());
-			await expect(client.pauseInfo("sb-1")).rejects.toThrow(SandboxError);
+			await expect(client.pause("sb-1")).rejects.toThrow(/not in Running state/);
 		});
 
 		it("resume throws SandboxError on 409", async () => {
@@ -519,12 +507,12 @@ describe("SandboxClient", () => {
 			await expect(client.resume("sb-1")).rejects.toThrow(SandboxError);
 		});
 
-		it("resumeInfo throws SandboxError on 409", async () => {
+		it("resume 409 maps to SandboxError with the not-paused hint", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValue(mockResponse({ detail: "Not paused" }, 409));
 
 			const client = new SandboxClient(makeConfig());
-			await expect(client.resumeInfo("sb-1")).rejects.toThrow(SandboxError);
+			await expect(client.resume("sb-1")).rejects.toThrow(/not in Paused state/);
 		});
 	});
 
