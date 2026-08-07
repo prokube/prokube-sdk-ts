@@ -256,8 +256,8 @@ moves through an intermediate phase before it settles.
 | `pause()` | sandbox reports `Paused` (default `wait: true`) | `Pausing` → `Paused` | — |
 | `pause({ wait: false })` | pause accepted | `Pausing` | poll `refresh()` / `status` |
 | `resume()` | resume accepted (never blocks) | `Resuming` | `waitUntilReady()` |
-| `kill()` | delete accepted (default `wait: false`) | `Deleting` | — |
-| `kill({ wait: true })` | sandbox is gone (HTTP 404) | `Deleting` → gone | — |
+| `kill()` | delete accepted (default `wait: false`) | local `status` flips to `Succeeded` at once | — |
+| `kill({ wait: true })` | sandbox is gone (HTTP 404) | local `status` flips to `Succeeded` once gone | — |
 
 - `pause(options)` defaults to `{ wait: true, timeout: 300 }` (seconds), so
   existing `await sbx.pause()` call sites keep blocking until `Paused`.
@@ -265,6 +265,13 @@ moves through an intermediate phase before it settles.
   includes an asynchronous persistence purge, and the sandbox name stays
   reserved until that purge finishes — pass `{ wait: true }` when you need to
   reuse the name or reclaim quota immediately.
+- `kill()` marks the sandbox dead locally the moment the delete is accepted:
+  `status` reads `Succeeded` and every further operation throws, even though
+  the backend is still tearing the pod down (its own phase is `Deleting`
+  until the record is purged). The local status is the SDK's "this handle is
+  finished" flag, not a backend phase reading — the handle's client is closed,
+  so it cannot report backend phases any more. Use `Sandbox.get(name)` if you
+  need to observe the backend-side teardown.
 - `waitUntilReady(timeout)` polls through `Pending` and `Resuming` until the
   phase is `Running`. The timeout is in seconds and defaults to the client
   timeout (`PROKUBE_TIMEOUT` / the `timeout` option, 300 by default). The whole
@@ -296,8 +303,8 @@ for (const sandbox of page.sandboxes) {
 }
 
 while (page.hasMore) {
-  // The continuation token is an opaque keyset cursor: pass it back with the
-  // same limit to fetch the next page.
+  // The continuation token is an opaque keyset cursor: pass it back together
+  // with a `limit` (required whenever a token is supplied) for the next page.
   page = await Sandbox.listPage({ limit: 10, continueToken: page.continueToken });
   for (const sandbox of page.sandboxes) {
     console.log(sandbox.name, sandbox.status);

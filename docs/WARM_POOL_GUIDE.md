@@ -95,10 +95,11 @@ transition is asynchronous, so you will observe intermediate phases:
 ### Listing Sandboxes by Page
 
 `Sandbox.listPage()` returns one bounded, name-ordered page across every
-phase. The continuation token is an opaque keyset cursor — pass it back with
-the same `limit` to fetch the next page. `limit` defaults to `25` and must be
-between 1 and 100. Idle warm-pool capacity is internal infrastructure and never
-appears in the listing.
+phase. The continuation token is an opaque keyset cursor — pass it back
+together with a `limit`, which the backend requires whenever a token is
+supplied. `limit` defaults to `25` and must be between 1 and 100. Idle
+warm-pool capacity is internal infrastructure and never appears in the
+listing.
 
 ```typescript
 import { Sandbox } from "prokube";
