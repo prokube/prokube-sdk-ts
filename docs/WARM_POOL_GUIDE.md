@@ -4,7 +4,7 @@ This guide walks through the typical workflow for using prokube.ai sandboxes wit
 
 ## Prerequisites
 
-- A prokube.ai cluster with sandbox support enabled
+- A prokube.ai cluster with sandbox support enabled (pk-sandbox backend >= 0.8.0)
 - An API key (create one in the UI under **Settings → API Keys**)
 - Node.js >= 20.19
 
@@ -35,7 +35,7 @@ npx tsx my-script.ts
 
 ## 1. Create a Warm Pool
 
-Warm pools keep pre-warmed sandboxes ready so you can claim one instantly instead of waiting for a cold start (~15-20s).
+Warm pools keep pre-warmed sandboxes ready so you can claim one in about a second instead of waiting for a cold start (~15-20s).
 
 You can create a pool in the prokube.ai UI, or via the SDK:
 
@@ -66,7 +66,52 @@ You only need to do this once. The pool stays running and automatically replenis
 import { Sandbox } from "prokube";
 
 const sbx = await Sandbox.fromPool("my-pool");
-// Ready to use — typically takes ~1s
+await sbx.waitUntilReady();
+```
+
+Claiming is fast, but the backend adopts the pre-warmed pod asynchronously: the
+claim is accepted with HTTP 202 and the sandbox starts out in phase `Pending`.
+Always `await sbx.waitUntilReady()` before running anything — it polls until
+the phase is `Running` (typically ~1s for a warm pool) and rejects with
+`SandboxError` if the sandbox reaches `Failed` (the message carries the
+backend's `lastError`).
+
+### Sandbox Phases
+
+`sbx.status` reports the sandbox phase. Against a v0.8 backend every lifecycle
+transition is asynchronous, so you will observe intermediate phases:
+
+| Phase | Meaning |
+| --- | --- |
+| `Pending` | Claimed or created, pod still starting |
+| `Running` | Ready for `runCode`, `commands`, and `files` |
+| `Pausing` | Pause accepted, workspace being flushed to S3 |
+| `Paused` | Pod terminated, workspace preserved |
+| `Resuming` | Resume accepted, new pod starting |
+| `Deleting` | Delete accepted, teardown and persistence purge in progress |
+| `Failed` | Terminal failure; see `lastError` |
+| `Succeeded` / `Unknown` | Finished / not reported by the backend |
+
+### Listing Sandboxes by Page
+
+`Sandbox.listPage()` returns one bounded, name-ordered page across every
+phase. The continuation token is an opaque keyset cursor — pass it back with
+the same `limit` to fetch the next page. `limit` defaults to `25` and must be
+between 1 and 100. Idle warm-pool capacity is internal infrastructure and never
+appears in the listing.
+
+```typescript
+import { Sandbox } from "prokube";
+
+let page = await Sandbox.listPage({ limit: 10 });
+while (true) {
+  for (const sandbox of page.sandboxes) {
+    console.log(`${sandbox.name}: ${sandbox.status}`);
+  }
+  console.log(`${page.loaded} on this page, hasMore=${page.hasMore}`);
+  if (!page.hasMore) break;
+  page = await Sandbox.listPage({ limit: 10, continueToken: page.continueToken });
+}
 ```
 
 ## 3. Run Code
@@ -159,23 +204,38 @@ with open('/workspace/data.csv') as f:
 
 ## 6. Pause & Resume
 
-Pause frees compute resources while preserving your workspace in S3. Resume brings the sandbox back with all files intact.
+Pause frees compute resources while preserving your workspace in S3. Resume brings the sandbox back with all files intact. Both transitions are asynchronous on the backend.
 
 ```typescript
 // Save some work
 await sbx.files.write("/workspace/checkpoint.pkl", modelData);
 
-// Pause — workspace is flushed to S3, pod is terminated
+// Pause — workspace is flushed to S3, pod is terminated.
+// Blocks until the sandbox reports Paused (default { wait: true, timeout: 300 }).
 await sbx.pause();
 // No compute costs while paused
 
-// Later: resume
+// Fire-and-forget variant: returns as soon as the backend accepted the
+// request, leaving the phase at Pausing.
+// await sbx.pause({ wait: false });
+
+// Later: resume. resume() never blocks — the phase goes to Resuming.
 await sbx.resume();
 await sbx.waitUntilReady();
 
 // Files are restored from S3
 const checkpoint = await sbx.files.read("/workspace/checkpoint.pkl");
 ```
+
+Pausing terminates the pod, so the Jupyter session is reset: the next
+`runCode()` after a pause or resume starts a fresh kernel.
+
+`pause()` rejects with `SandboxError` if the pause lands in phase `Failed` (the
+message carries the backend's `lastError`; re-issue `pause()` to retry) or if a
+concurrently admitted delete preempts it — delete outranks pause on the
+backend, so a sandbox that reaches `Deleting` will never reach `Paused`. It
+rejects with `SandboxTimeoutError` if the sandbox has not paused within the
+timeout.
 
 **What survives pause/resume:**
 - All files in `/workspace`, `/root`, and `/home/agent`
@@ -188,8 +248,14 @@ const checkpoint = await sbx.files.read("/workspace/checkpoint.pkl");
 ## 7. Clean Up
 
 ```typescript
-// Kill the sandbox when done
+// Kill the sandbox when done. The delete is accepted with HTTP 202 and the
+// backend tears the sandbox down — including the persistence purge that
+// releases the name — in the background.
 await sbx.kill();
+
+// Or block until the sandbox is really gone (needed if you want to reuse the
+// name or reclaim quota right away):
+// await sbx.kill({ wait: true });
 ```
 
 Or use automatic cleanup:
@@ -197,8 +263,9 @@ Or use automatic cleanup:
 ```typescript
 {
   await using sbx = await Sandbox.fromPool("my-pool");
+  await sbx.waitUntilReady();
   await sbx.runCode("print('hello')");
-} // automatically killed
+} // automatically killed (non-blocking)
 ```
 
 ## 8. Manage Pools
@@ -228,6 +295,7 @@ Putting it all together — a script that claims a sandbox, uploads data, proces
 import { Sandbox } from "prokube";
 
 const sbx = await Sandbox.fromPool("my-pool");
+await sbx.waitUntilReady();
 
 try {
   // Create data via code
@@ -254,7 +322,7 @@ print(f"Students: {len(data)}")
   // "Average score: 91.3"
   // "Students: 3"
 
-  // Pause to save costs
+  // Pause to save costs (blocks until the phase is Paused)
   await sbx.pause();
   console.log("Paused — no compute costs");
 
@@ -268,6 +336,7 @@ print(f"Students: {len(data)}")
   console.log(check.stdout);
 
 } finally {
-  await sbx.kill();
+  // Wait for the teardown so the sandbox name is reclaimed before we exit.
+  await sbx.kill({ wait: true });
 }
 ```
