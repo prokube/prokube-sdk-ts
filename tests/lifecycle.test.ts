@@ -386,6 +386,54 @@ describe("v0.8 lifecycle", () => {
 			await expect(sbx.runCode("print(1)")).rejects.toThrow(/has been killed/);
 		});
 
+		it("refuses work through helpers cached before the deletion lock engaged", async () => {
+			vi.useFakeTimers();
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
+			mockFetch.mockResolvedValueOnce(claimResponse());
+			mockFetch.mockResolvedValueOnce(new Response(null, { status: 202 }));
+			mockFetch.mockImplementation(async () => getResponse("Deleting"));
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			// Grab the helpers while the sandbox is still usable: the guard has
+			// to live in the helper methods, not only in the property getter.
+			const commands = sbx.commands;
+			const files = sbx.files;
+
+			const settled = sbx.kill({ wait: true, timeout: 1 }).catch((error: unknown) => error);
+			await vi.advanceTimersByTimeAsync(1000);
+			expect(await settled).toBeInstanceOf(SandboxTimeoutError);
+
+			const deleteCalls = callsTo(mockFetch, "/sandboxes/sb-1", "DELETE").length;
+			await expect(commands.run("echo hi")).rejects.toThrow(/is being deleted/);
+			await expect(files.write("/workspace/a.txt", "hi")).rejects.toThrow(/is being deleted/);
+			await expect(files.read("/workspace/a.txt")).rejects.toThrow(/is being deleted/);
+			await expect(files.list()).rejects.toThrow(/is being deleted/);
+			await expect(files.writeBatch([{ path: "/workspace/a.txt", content: "hi" }])).rejects.toThrow(
+				/is being deleted/,
+			);
+			// Nothing reached the backend.
+			expect(callsTo(mockFetch, "/sandboxes/sb-1", "DELETE")).toHaveLength(deleteCalls);
+			expect(callsTo(mockFetch, "/sandboxes/sb-1/exec", "POST")).toHaveLength(0);
+			expect(callsTo(mockFetch, "/sandboxes/sb-1/files", "POST")).toHaveLength(0);
+		});
+
+		it("refuses work through helpers cached before kill() completed", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
+			mockFetch.mockResolvedValueOnce(claimResponse());
+			mockFetch.mockResolvedValueOnce(new Response(null, { status: 202 }));
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			const commands = sbx.commands;
+			const files = sbx.files;
+			await sbx.kill();
+
+			await expect(commands.run("echo hi")).rejects.toThrow(/has been killed/);
+			await expect(files.list()).rejects.toThrow(/has been killed/);
+			expect(callsTo(mockFetch, "/sandboxes/sb-1/exec", "POST")).toHaveLength(0);
+		});
+
 		it("treats a 404 from DELETE as the sandbox already being gone", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValueOnce(versionResponse());

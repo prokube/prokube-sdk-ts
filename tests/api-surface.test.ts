@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import * as sdk from "../src/index.js";
 
 /**
@@ -70,6 +70,50 @@ describe("public API surface", () => {
 		for (const name of ["fromPool", "create", "get", "connect", "list", "listPage"]) {
 			expect(typeof (sdk.Sandbox as unknown as Record<string, unknown>)[name]).toBe("function");
 		}
+	});
+
+	it("keeps SandboxClient.pause/resume resolving to void, with *Info for the body", async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(JSON.stringify({ name: "sb-1", phase: "Pausing" }), {
+					status: 202,
+					headers: { "content-type": "application/json" },
+				}),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const client = new sdk.SandboxClient(
+				new sdk.Config({
+					apiUrl: "https://example.com",
+					workspace: "ws",
+					userId: "user@test.com",
+				}),
+				false,
+			);
+
+			// Type-level pin: these signatures fail to compile if the return
+			// type widens away from Promise<void>, which is what pre-0.8 call
+			// sites were written against.
+			const pause: (name: string) => Promise<void> = client.pause.bind(client);
+			const resume: (name: string) => Promise<void> = client.resume.bind(client);
+			expect(await pause("sb-1")).toBeUndefined();
+			expect(await resume("sb-1")).toBeUndefined();
+
+			// The admission bodies live on the *Info variants.
+			expect((await client.pauseInfo("sb-1")).name).toBe("sb-1");
+			expect((await client.resumeInfo("sb-1")).name).toBe("sb-1");
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
+	it("keeps Sandbox.pause/resume/kill resolving to void", () => {
+		// Type-level pin: assigning the method to a void-returning signature
+		// fails to compile if the return type widens.
+		const pause: (options?: sdk.PauseOptions) => Promise<void> = sdk.Sandbox.prototype.pause;
+		const resume: () => Promise<void> = sdk.Sandbox.prototype.resume;
+		const kill: (options?: sdk.KillOptions) => Promise<void> = sdk.Sandbox.prototype.kill;
+		expect([pause, resume, kill].every((fn) => typeof fn === "function")).toBe(true);
 	});
 
 	it("reports the SDK version the compatibility warning quotes", () => {

@@ -132,9 +132,16 @@ export class Sandbox {
 		this._pool = pool;
 		this._autoIdleTimeoutSeconds = autoIdleTimeoutSeconds;
 		this._lastError = lastError;
-		this._code = new CodeRunner(client, name);
-		this._commands = new CommandRunner(client, name, timeout);
-		this._files = new FileManager(client, name);
+		// Bind the usability guard into every helper so the check runs on each
+		// operation, not just on the property access that handed the helper
+		// out. Mirrors the Python SDK, which injects `_check_not_killed` into
+		// CommandRunner/FileManager/CodeRunner.
+		const checkUsable = () => {
+			this.checkUsable();
+		};
+		this._code = new CodeRunner(client, name, checkUsable);
+		this._commands = new CommandRunner(client, name, timeout, checkUsable);
+		this._files = new FileManager(client, name, checkUsable);
 	}
 
 	// ---- Factory methods ----
@@ -265,8 +272,9 @@ export class Sandbox {
 	 * List one bounded page of sandboxes.
 	 *
 	 * One name-ordered listing covers every sandbox state. Pass
-	 * `continueToken` from the previous page together with the same `limit`
-	 * to fetch the next page; the token is an opaque keyset cursor.
+	 * `continueToken` from the previous page to fetch the next page; the
+	 * token is an opaque keyset cursor and `limit` must be supplied whenever
+	 * a `continueToken` is.
 	 *
 	 * `loaded` and `hasMore` describe the page the backend returned, so they
 	 * are unaffected by the client-side `phase` filter.
@@ -389,7 +397,7 @@ export class Sandbox {
 	 */
 	async pause(options: PauseOptions = {}): Promise<void> {
 		this.checkUsable();
-		const info = await this._client.pause(this._name);
+		const info = await this._client.pauseInfo(this._name);
 		this._status = info.status;
 		this._lastError = info.lastError;
 		// Pausing deletes the underlying pod, so any existing Jupyter session
@@ -462,7 +470,7 @@ export class Sandbox {
 	 */
 	async resume(): Promise<void> {
 		this.checkUsable();
-		const info = await this._client.resume(this._name);
+		const info = await this._client.resumeInfo(this._name);
 		this._status = info.status;
 		this._lastError = info.lastError;
 		if (info.image) this._image = info.image;

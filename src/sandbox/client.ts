@@ -191,10 +191,11 @@ export class SandboxClient {
 	 * List one bounded page of sandboxes.
 	 *
 	 * There is exactly one name-ordered listing across every sandbox state.
-	 * The continuation token is an opaque keyset cursor and must be reused
-	 * with the same limit that produced it. An empty token means "no token":
-	 * the backend rejects `continueToken=` with HTTP 422, so it is treated
-	 * the same as omitting it and requests the first page.
+	 * The continuation token is an opaque keyset cursor, and the backend
+	 * requires `limit` to be present whenever `continueToken` is supplied.
+	 * An empty token means "no token": the backend rejects `continueToken=`
+	 * with HTTP 422, so it is treated the same as omitting it and requests
+	 * the first page.
 	 */
 	async listPage(options: ListPageOptions = {}): Promise<SandboxInfoPage> {
 		const limit = options.limit ?? 25;
@@ -258,8 +259,20 @@ export class SandboxClient {
 	 * The backend accepts the request with HTTP 202 and reports phase
 	 * `Pausing` until its worker settles the sandbox on `Paused`; poll
 	 * {@link get} to observe the final phase.
+	 *
+	 * Use {@link pauseInfo} when you need the admission body.
 	 */
-	async pause(name: string): Promise<SandboxInfo> {
+	async pause(name: string): Promise<void> {
+		await this.pauseInfo(name);
+	}
+
+	/**
+	 * Pause a running sandbox and return the accepted admission body.
+	 *
+	 * Same request as {@link pause}; the phase in the returned
+	 * {@link SandboxInfo} is the transitional `Pausing`, not the settled one.
+	 */
+	async pauseInfo(name: string): Promise<SandboxInfo> {
 		try {
 			const data = (await this.http.post(this.sandboxSubPath(name, "pause"))) as Record<
 				string,
@@ -279,8 +292,20 @@ export class SandboxClient {
 	 *
 	 * The backend accepts the request with HTTP 202 and reports phase
 	 * `Resuming` until the new pod is up; poll {@link get} until `Running`.
+	 *
+	 * Use {@link resumeInfo} when you need the admission body.
 	 */
-	async resume(name: string): Promise<SandboxInfo> {
+	async resume(name: string): Promise<void> {
+		await this.resumeInfo(name);
+	}
+
+	/**
+	 * Resume a paused sandbox and return the accepted admission body.
+	 *
+	 * Same request as {@link resume}; the phase in the returned
+	 * {@link SandboxInfo} is the transitional `Resuming`.
+	 */
+	async resumeInfo(name: string): Promise<SandboxInfo> {
 		try {
 			const data = (await this.http.post(this.sandboxSubPath(name, "resume"))) as Record<
 				string,
@@ -295,15 +320,19 @@ export class SandboxClient {
 		}
 	}
 
-	/**
-	 * @deprecated {@link resume} now returns the same {@link SandboxInfo}.
-	 *   Kept so existing call sites keep compiling.
-	 */
-	async resumeInfo(name: string): Promise<SandboxInfo> {
-		return this.resume(name);
-	}
-
 	// ---- Execution ----
+
+	// Both exec entry points bound the fetch by
+	// `max(config.timeout, <execution timeout>)`. Python sends exec through
+	// the shared `httpx.Client`, built once with `timeout=self.config.timeout`
+	// (see `prokube/common/http.py`), and `SandboxClient.exec_code` /
+	// `exec_command` pass no per-request override — so the transport budget is
+	// the configured timeout, with no extra grace on top of the execution
+	// timeout. We keep that configured timeout as the floor (never shortening
+	// a request that used to be allowed) and raise it to the caller's
+	// execution budget when that is longer: otherwise
+	// `execCode(..., timeout: 600)` under the default 300s config would abort
+	// the fetch before the backend could answer.
 
 	async execCode(
 		name: string,
@@ -322,10 +351,11 @@ export class SandboxClient {
 		if (sessionId) body.session_id = sessionId;
 		if (resetSession) body.reset_session = true;
 
-		const data = (await this.http.post(this.sandboxSubPath(name, "exec"), body)) as Record<
-			string,
-			unknown
-		>;
+		const data = (await this.http.post(
+			this.sandboxSubPath(name, "exec"),
+			body,
+			Math.max(this.http.config.timeout, timeout),
+		)) as Record<string, unknown>;
 
 		return parseCodeResult(data);
 	}
@@ -337,10 +367,11 @@ export class SandboxClient {
 			timeout,
 		};
 
-		const data = (await this.http.post(this.sandboxSubPath(name, "exec"), body)) as Record<
-			string,
-			unknown
-		>;
+		const data = (await this.http.post(
+			this.sandboxSubPath(name, "exec"),
+			body,
+			Math.max(this.http.config.timeout, timeout),
+		)) as Record<string, unknown>;
 
 		return parseCommandResult(data);
 	}

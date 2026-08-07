@@ -3,8 +3,11 @@ import { Config } from "../src/common/config.js";
 import { PoolExhaustedError, SandboxError } from "../src/common/errors.js";
 import { SandboxClient } from "../src/sandbox/client.js";
 import { SandboxStatus } from "../src/sandbox/models.js";
+import { captureRequestTimeouts } from "./helpers.js";
 
-function makeConfig(overrides: Partial<{ apiKey: string; userId: string }> = {}): Config {
+function makeConfig(
+	overrides: Partial<{ apiKey: string; userId: string; timeout: number }> = {},
+): Config {
 	return new Config({
 		apiUrl: "https://example.com/pkui",
 		workspace: "test-ns",
@@ -419,64 +422,77 @@ describe("SandboxClient", () => {
 	});
 
 	describe("pause/resume", () => {
-		it("pause sends POST to /pause and returns the accepted Sandbox body", async () => {
+		it("pause sends POST to /pause and resolves with undefined", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", phase: "Pausing" }, 202));
 
 			const client = new SandboxClient(makeConfig());
-			const info = await client.pause("sb-1");
+			const result = await client.pause("sb-1");
+
+			expect(mockFetch.mock.calls[0][0] as string).toContain("/sandboxes/sb-1/pause");
+			// Pre-0.8 userspace signature: Promise<void>, not the admission body.
+			expect(result).toBeUndefined();
+		});
+
+		it("pauseInfo returns the accepted Sandbox body", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", phase: "Pausing" }, 202));
+
+			const client = new SandboxClient(makeConfig());
+			const info = await client.pauseInfo("sb-1");
 
 			expect(mockFetch.mock.calls[0][0] as string).toContain("/sandboxes/sb-1/pause");
 			expect(info.name).toBe("sb-1");
 			expect(info.status).toBe(SandboxStatus.Pausing);
 		});
 
-		it("pause defaults to Pausing when the body omits the phase", async () => {
+		it("pauseInfo defaults to Pausing when the body omits the phase", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1" }, 202));
 
 			const client = new SandboxClient(makeConfig());
-			expect((await client.pause("sb-1")).status).toBe(SandboxStatus.Pausing);
+			expect((await client.pauseInfo("sb-1")).status).toBe(SandboxStatus.Pausing);
 		});
 
-		it("resume sends POST to /resume and returns the accepted Sandbox body", async () => {
+		it("resume sends POST to /resume and resolves with undefined", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", phase: "Resuming" }, 202));
 
 			const client = new SandboxClient(makeConfig());
-			const info = await client.resume("sb-1");
+			const result = await client.resume("sb-1");
 
 			expect(mockFetch.mock.calls[0][0] as string).toContain("/sandboxes/sb-1/resume");
-			expect(info.status).toBe(SandboxStatus.Resuming);
+			expect(result).toBeUndefined();
 		});
 
-		it("resume defaults to Resuming when the body omits the phase", async () => {
-			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1" }, 202));
-
-			const client = new SandboxClient(makeConfig());
-			expect((await client.resume("sb-1")).status).toBe(SandboxStatus.Resuming);
-		});
-
-		it("resume carries lastError through", async () => {
-			const mockFetch = vi.mocked(fetch);
-			mockFetch.mockResolvedValue(
-				mockResponse({ name: "sb-1", phase: "Failed", lastError: "pvc restore failed" }, 202),
-			);
-
-			const client = new SandboxClient(makeConfig());
-			expect((await client.resume("sb-1")).lastError).toBe("pvc restore failed");
-		});
-
-		it("resumeInfo stays available as an alias for resume", async () => {
+		it("resumeInfo returns the accepted Sandbox body", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1", phase: "Resuming" }, 202));
 
 			const client = new SandboxClient(makeConfig());
 			const info = await client.resumeInfo("sb-1");
 
+			expect(mockFetch.mock.calls[0][0] as string).toContain("/sandboxes/sb-1/resume");
 			expect(info.name).toBe("sb-1");
 			expect(info.status).toBe(SandboxStatus.Resuming);
+		});
+
+		it("resumeInfo defaults to Resuming when the body omits the phase", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ name: "sb-1" }, 202));
+
+			const client = new SandboxClient(makeConfig());
+			expect((await client.resumeInfo("sb-1")).status).toBe(SandboxStatus.Resuming);
+		});
+
+		it("resumeInfo carries lastError through", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(
+				mockResponse({ name: "sb-1", phase: "Failed", lastError: "pvc restore failed" }, 202),
+			);
+
+			const client = new SandboxClient(makeConfig());
+			expect((await client.resumeInfo("sb-1")).lastError).toBe("pvc restore failed");
 		});
 
 		it("pause throws SandboxError on 409", async () => {
@@ -487,12 +503,28 @@ describe("SandboxClient", () => {
 			await expect(client.pause("sb-1")).rejects.toThrow(SandboxError);
 		});
 
+		it("pauseInfo throws SandboxError on 409", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ detail: "Not running" }, 409));
+
+			const client = new SandboxClient(makeConfig());
+			await expect(client.pauseInfo("sb-1")).rejects.toThrow(SandboxError);
+		});
+
 		it("resume throws SandboxError on 409", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValue(mockResponse({ detail: "Not paused" }, 409));
 
 			const client = new SandboxClient(makeConfig());
 			await expect(client.resume("sb-1")).rejects.toThrow(SandboxError);
+		});
+
+		it("resumeInfo throws SandboxError on 409", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValue(mockResponse({ detail: "Not paused" }, 409));
+
+			const client = new SandboxClient(makeConfig());
+			await expect(client.resumeInfo("sb-1")).rejects.toThrow(SandboxError);
 		});
 	});
 
@@ -543,6 +575,52 @@ describe("SandboxClient", () => {
 
 			const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
 			expect(body.use_jupyter).toBe(false);
+		});
+	});
+
+	describe("exec transport budget", () => {
+		const execBody = { stdout: "", stderr: "", success: true, durationMs: 1, exitCode: 0 };
+
+		it("gives execCode a fetch budget equal to an execution timeout above config.timeout", async () => {
+			vi.mocked(fetch).mockResolvedValue(mockResponse(execBody));
+			const budgets = captureRequestTimeouts();
+
+			const client = new SandboxClient(makeConfig({ timeout: 30 }));
+			await client.execCode("sb-1", "sleep(600)", "python", 600);
+
+			expect(budgets).toEqual([600_000]);
+		});
+
+		it("gives execCommand a fetch budget equal to an execution timeout above config.timeout", async () => {
+			vi.mocked(fetch).mockResolvedValue(mockResponse(execBody));
+			const budgets = captureRequestTimeouts();
+
+			const client = new SandboxClient(makeConfig({ timeout: 30 }));
+			await client.execCommand("sb-1", "sleep 600", 600);
+
+			expect(budgets).toEqual([600_000]);
+		});
+
+		it("keeps config.timeout as the floor for short execution timeouts", async () => {
+			vi.mocked(fetch).mockResolvedValue(mockResponse(execBody));
+			const budgets = captureRequestTimeouts();
+
+			const client = new SandboxClient(makeConfig({ timeout: 300 }));
+			await client.execCode("sb-1", "print(1)", "python", 5);
+
+			// A 5s backend execution budget must not shorten the transport
+			// budget below what every other request gets.
+			expect(budgets).toEqual([300_000]);
+		});
+
+		it("leaves non-exec requests on the configured budget", async () => {
+			vi.mocked(fetch).mockResolvedValue(mockResponse({ name: "sb-1", phase: "Running" }));
+			const budgets = captureRequestTimeouts();
+
+			const client = new SandboxClient(makeConfig({ timeout: 30 }));
+			await client.get("sb-1");
+
+			expect(budgets).toEqual([30_000]);
 		});
 	});
 

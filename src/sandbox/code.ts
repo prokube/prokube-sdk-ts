@@ -6,13 +6,23 @@ export class CodeRunner {
 	private readonly sandboxName: string;
 	private sessionId: string | undefined;
 	private resetOnNextExec = false;
+	private readonly checkUsable: (() => void) | undefined;
 
-	constructor(client: SandboxClient, sandboxName: string) {
+	/**
+	 * @param checkUsable Optional callback invoked before every execution.
+	 *   {@link Sandbox} injects its killed/deletion-requested guard here so a
+	 *   runner cached before the sandbox went away cannot keep issuing work —
+	 *   mirroring the Python SDK's `CodeRunner(check_killed=...)`, which
+	 *   guards `run` only; session bookkeeping stays local and unguarded.
+	 */
+	constructor(client: SandboxClient, sandboxName: string, checkUsable?: () => void) {
 		this.client = client;
 		this.sandboxName = sandboxName;
+		this.checkUsable = checkUsable;
 	}
 
 	async run(code: string, language = "python", timeout = 300): Promise<CodeResult> {
+		this.checkUsable?.();
 		const resetSession = this.resetOnNextExec;
 
 		const result = await this.client.execCode(
