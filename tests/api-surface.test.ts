@@ -2,9 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import * as sdk from "../src/index.js";
 
 /**
- * The v0.8 adaptation is a breaking change on the wire, not in the SDK's
- * TypeScript surface: every symbol that existed before must still be exported
- * and still behave. These tests fail loudly if a rename or removal slips in.
+ * The 0.2.0 surface contract: everything the SDK supports stays exported and
+ * behaving, and the three maintainer-approved pre-0.8 removals (see PR #40
+ * comments 5218339682 / 5218412469) stay removed — `SandboxStatus.Bound`,
+ * `SandboxInfo.resumedFromPool`, and `SandboxClient.resumeInfo()`, matching
+ * the Python SDK 0.2.0. These tests fail loudly if a symbol is renamed,
+ * dropped, or a removed one sneaks back.
  */
 describe("public API surface", () => {
 	it("still exports every pre-0.8 runtime value", () => {
@@ -49,9 +52,9 @@ describe("public API surface", () => {
 		expect(error.name).toBe("RequestTimeoutError");
 	});
 
-	it("keeps every pre-0.8 SandboxStatus member and adds the transitional ones", () => {
-		expect(Object.values(sdk.SandboxStatus)).toEqual(
-			expect.arrayContaining([
+	it("carries the supported SandboxStatus members and not the retired Bound", () => {
+		expect(Object.values(sdk.SandboxStatus).sort()).toEqual(
+			[
 				"Pending",
 				"Running",
 				"Paused",
@@ -61,7 +64,7 @@ describe("public API surface", () => {
 				"Pausing",
 				"Resuming",
 				"Deleting",
-			]),
+			].sort(),
 		);
 	});
 
