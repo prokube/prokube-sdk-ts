@@ -824,6 +824,33 @@ describe("Sandbox", () => {
 			expect(mockFetch.mock.calls.filter((c) => String(c[0]).includes("/exec"))).toHaveLength(1);
 		});
 
+		it("waitUntilReady_warmup_accepts_extra_stdout", async () => {
+			// Regression test for issue #51: the kernel may append unrelated
+			// warnings (e.g. IPython's history-thread SQLite error) alongside
+			// the marker. That session is live and must not be discarded.
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockImplementationOnce(async (_url, init) => {
+				const code = JSON.parse((init as RequestInit).body as string).code as string;
+				const match = code.match(/print\("(__pk_warmup_[a-f0-9]+__)"\)/);
+				if (!match) throw new Error(`Unexpected warmup probe request body: ${code}`);
+				return mockResponse({
+					stdout: `${match[1]}\nThe history saving thread hit an unexpected error (OperationalError('attempt to write a readonly database')). History will not be written to the database.\n`,
+					stderr: "",
+					success: true,
+					durationMs: 5,
+					session_id: "sess-warm",
+				});
+			});
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			await sbx.waitUntilReady(5);
+
+			expect(mockFetch.mock.calls.filter((c) => String(c[0]).includes("/exec"))).toHaveLength(1);
+		});
+
 		it("waitUntilReady_warmup_timeout_does_not_throw", async () => {
 			const mockFetch = vi.mocked(fetch);
 			mockFetch.mockResolvedValueOnce(versionResponse());
