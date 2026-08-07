@@ -1,6 +1,6 @@
 {
 	"name": "prokube",
-	"version": "2026.7.5",
+	"version": "0.2.0",
 	"description": "TypeScript SDK for the prokube.ai sandbox platform",
 	"type": "module",
 	"main": "./dist/index.cjs",
