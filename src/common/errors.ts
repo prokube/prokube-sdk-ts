@@ -12,6 +12,22 @@ export class ProKubeError extends Error {
 }
 
 /**
+ * Raised when a single HTTP request exceeds its timeout budget.
+ *
+ * This is the transport-level timeout (the `AbortSignal` fired), distinct
+ * from {@link SandboxTimeoutError}, which reports that a whole lifecycle
+ * wait (`waitUntilReady`, `pause({ wait: true })`, `kill({ wait: true })`)
+ * ran out of time. Lifecycle polling loops swallow this error and retry
+ * until their own deadline expires.
+ */
+export class RequestTimeoutError extends ProKubeError {
+	constructor(message: string) {
+		super(message);
+		this.name = "RequestTimeoutError";
+	}
+}
+
+/**
  * Raised when authentication fails or credentials are missing.
  */
 export class AuthenticationError extends ProKubeError {

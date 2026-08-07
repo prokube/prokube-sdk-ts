@@ -1,7 +1,24 @@
+/**
+ * Lifecycle phase of a sandbox.
+ *
+ * Since pk-sandbox v0.8 every mutation is admission-only, so the
+ * transitional phases `Pausing`, `Resuming` and `Deleting` are observable
+ * between a request being accepted and the backend settling it.
+ */
 export enum SandboxStatus {
 	Pending = "Pending",
 	Running = "Running",
 	Paused = "Paused",
+	/** Pause accepted; the pod is being torn down. Settles on `Paused`. */
+	Pausing = "Pausing",
+	/** Resume accepted; a new pod is starting. Settles on `Running`. */
+	Resuming = "Resuming",
+	/** Delete accepted; teardown and persistence purge are in flight. */
+	Deleting = "Deleting",
+	/**
+	 * @deprecated Never returned by pk-sandbox v0.8 or later backends. Kept
+	 * so existing code that references it still compiles.
+	 */
 	Bound = "Bound",
 	Succeeded = "Succeeded",
 	Failed = "Failed",
@@ -16,7 +33,21 @@ export interface SandboxInfo {
 	pool?: string;
 	createdAt?: string;
 	autoIdleTimeoutSeconds?: number;
+	/** Why the last lifecycle step failed. Set when the phase is `Failed`. */
+	lastError?: string;
+	/**
+	 * @deprecated pk-sandbox v0.8 no longer reports warm-pool resume swaps,
+	 * so this is never populated. Kept for source compatibility.
+	 */
 	resumedFromPool?: boolean;
+}
+
+/** One bounded page of sandbox information, as returned by the API. */
+export interface SandboxInfoPage {
+	sandboxes: SandboxInfo[];
+	loaded: number;
+	hasMore: boolean;
+	continueToken?: string;
 }
 
 export interface CodeResult {
@@ -139,29 +170,69 @@ export interface BatchFileWriteRequest {
 
 // ---- Parsing helpers ----
 
-export function parseStatus(value: string | undefined): SandboxStatus {
-	if (!value) return SandboxStatus.Unknown;
+/**
+ * @param fallback Phase to assume when the body reports none. Admission-only
+ *   endpoints (claim/create/pause/resume) know the phase they just requested,
+ *   so they pass it instead of falling back to `Unknown`.
+ */
+export function parseStatus(
+	value: string | undefined,
+	fallback: SandboxStatus = SandboxStatus.Unknown,
+): SandboxStatus {
+	if (!value) return fallback;
 	const match = Object.values(SandboxStatus).find((s) => s === value);
 	return match ?? SandboxStatus.Unknown;
 }
 
-export function parseSandboxInfo(data: Record<string, unknown>, workspace: string): SandboxInfo {
-	const name = (data.sandboxName ?? data.name) as string | undefined;
+/**
+ * Build a {@link SandboxInfo} from one raw backend Sandbox body.
+ *
+ * Every sandbox endpoint returns this same shape, so list/get/create/claim/
+ * pause/resume all share this parser. The backend has used both camelCase and
+ * snake_case spellings and reports the phase as either `status` or `phase`;
+ * accept every spelling so the endpoints stay in sync.
+ */
+export function parseSandboxInfo(
+	data: Record<string, unknown>,
+	workspace: string,
+	defaultStatus: SandboxStatus = SandboxStatus.Unknown,
+): SandboxInfo {
+	const name = stringField(data, "name");
 	if (!name) {
 		throw new Error("Invalid API response: sandbox name is missing");
 	}
 	return {
 		name,
 		workspace,
-		status: parseStatus((data.status ?? data.phase) as string | undefined),
-		image: data.image as string | undefined,
-		pool: (data.poolName ?? data.pool) as string | undefined,
-		createdAt: (data.createdAt ?? data.created_at) as string | undefined,
-		autoIdleTimeoutSeconds: (data.autoIdleTimeoutSeconds ?? data.auto_idle_timeout_seconds) as
-			| number
-			| undefined,
-		resumedFromPool: data.resumedFromPool === true,
+		status: parseStatus(stringField(data, "status", "phase"), defaultStatus),
+		image: stringField(data, "image"),
+		pool: stringField(data, "poolName", "pool"),
+		createdAt: stringField(data, "createdAt", "created_at"),
+		autoIdleTimeoutSeconds: numberField(
+			data,
+			"autoIdleTimeoutSeconds",
+			"auto_idle_timeout_seconds",
+		),
+		lastError: stringField(data, "lastError", "last_error"),
 	};
+}
+
+/** First key present as a non-empty string, mirroring the backend's aliases. */
+function stringField(data: Record<string, unknown>, ...keys: string[]): string | undefined {
+	for (const key of keys) {
+		const value = data[key];
+		if (typeof value === "string" && value !== "") return value;
+	}
+	return undefined;
+}
+
+/** First key present as a real number; booleans and NaN are rejected. */
+function numberField(data: Record<string, unknown>, ...keys: string[]): number | undefined {
+	for (const key of keys) {
+		const value = data[key];
+		if (typeof value === "number" && Number.isFinite(value)) return value;
+	}
+	return undefined;
 }
 
 export function parseCodeResult(data: Record<string, unknown>): CodeResult {

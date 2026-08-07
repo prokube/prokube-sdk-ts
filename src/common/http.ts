@@ -1,6 +1,12 @@
 import { getAuthHeaders } from "./auth.js";
 import type { Config } from "./config.js";
-import { AuthenticationError, NotFoundError, PoolExhaustedError, ProKubeError } from "./errors.js";
+import {
+	AuthenticationError,
+	NotFoundError,
+	PoolExhaustedError,
+	ProKubeError,
+	RequestTimeoutError,
+} from "./errors.js";
 
 interface ErrorResponseBody {
 	detail?: unknown;
@@ -31,34 +37,47 @@ export class HttpClient {
 		}
 	}
 
-	async get(path: string, params?: Record<string, string>): Promise<unknown> {
-		return this.request("GET", path, undefined, params);
+	/**
+	 * @param timeout Per-request timeout override in seconds. Defaults to
+	 *   `config.timeout`. Callers polling toward a deadline (e.g.
+	 *   `waitUntilReady`) should pass the remaining budget so a single
+	 *   stalled request cannot outlast the caller's overall timeout.
+	 */
+	async get(path: string, params?: Record<string, string>, timeout?: number): Promise<unknown> {
+		return this.request("GET", path, undefined, params, timeout);
 	}
 
-	async post(path: string, body?: unknown): Promise<unknown> {
-		return this.request("POST", path, body);
+	/** @param timeout Per-request timeout override in seconds. See {@link get}. */
+	async post(path: string, body?: unknown, timeout?: number): Promise<unknown> {
+		return this.request("POST", path, body, undefined, timeout);
 	}
 
-	async delete(path: string): Promise<unknown | null> {
-		const url = this.buildUrl(path);
-		const response = await fetch(url, {
-			method: "DELETE",
-			headers: this.headers,
-		});
-		await this.handleError(response);
-		if (response.status === 204) return null;
-		const text = await response.text();
-		return text ? JSON.parse(text) : null;
+	/** @param timeout Per-request timeout override in seconds. See {@link get}. */
+	async delete(path: string, timeout?: number): Promise<unknown | null> {
+		return this.perform(
+			this.buildUrl(path),
+			{ method: "DELETE", headers: this.headers },
+			timeout,
+			async (response) => {
+				if (response.status === 204) return null;
+				const text = await response.text();
+				return text ? JSON.parse(text) : null;
+			},
+		);
 	}
 
-	async getBytes(path: string, params?: Record<string, string>): Promise<Uint8Array> {
-		const url = this.buildUrl(path, params);
-		const response = await fetch(url, {
-			method: "GET",
-			headers: this.headers,
-		});
-		await this.handleError(response);
-		return new Uint8Array(await response.arrayBuffer());
+	/** @param timeout Per-request timeout override in seconds. See {@link get}. */
+	async getBytes(
+		path: string,
+		params?: Record<string, string>,
+		timeout?: number,
+	): Promise<Uint8Array> {
+		return this.perform(
+			this.buildUrl(path, params),
+			{ method: "GET", headers: this.headers },
+			timeout,
+			async (response) => new Uint8Array(await response.arrayBuffer()),
+		);
 	}
 
 	close(): void {
@@ -71,16 +90,53 @@ export class HttpClient {
 		path: string,
 		body?: unknown,
 		params?: Record<string, string>,
+		timeout?: number,
 	): Promise<unknown> {
-		const url = this.buildUrl(path, params);
-		const response = await fetch(url, {
-			method,
-			headers: this.headers,
-			body: body != null ? JSON.stringify(body) : undefined,
-		});
-		await this.handleError(response);
-		const text = await response.text();
-		return text ? JSON.parse(text) : {};
+		return this.perform(
+			this.buildUrl(path, params),
+			{
+				method,
+				headers: this.headers,
+				body: body != null ? JSON.stringify(body) : undefined,
+			},
+			timeout,
+			async (response) => {
+				const text = await response.text();
+				return text ? JSON.parse(text) : {};
+			},
+		);
+	}
+
+	/**
+	 * Run one request under a timeout budget, then hand the response to
+	 * `consume`.
+	 *
+	 * The abort signal stays armed while the body is read, so a response that
+	 * stalls mid-stream is bounded too. Abort-by-timeout is normalized into
+	 * {@link RequestTimeoutError} so lifecycle polling loops can retry it
+	 * without swallowing genuine transport failures.
+	 */
+	private async perform<T>(
+		url: string,
+		init: RequestInit,
+		timeout: number | undefined,
+		consume: (response: Response) => Promise<T>,
+	): Promise<T> {
+		const seconds = timeout ?? this.config.timeout;
+		// AbortSignal.timeout takes milliseconds and rejects immediately at 0,
+		// so a sub-millisecond remaining budget is floored to 1ms rather than
+		// silently becoming "no timeout".
+		const signal = AbortSignal.timeout(Math.max(1, Math.ceil(seconds * 1000)));
+		try {
+			const response = await fetch(url, { ...init, signal });
+			await this.handleError(response);
+			return await consume(response);
+		} catch (error) {
+			if (isTimeoutAbort(error)) {
+				throw new RequestTimeoutError(`Request to ${url} timed out after ${seconds}s`);
+			}
+			throw error;
+		}
 	}
 
 	private buildUrl(path: string, params?: Record<string, string>): string {
@@ -134,6 +190,27 @@ export class HttpClient {
 		}
 		throw new ProKubeError(message, response.status);
 	}
+}
+
+/**
+ * Detect a fetch rejection caused by our own {@link AbortSignal.timeout}.
+ *
+ * Runtimes disagree on how the abort reason surfaces: undici rejects with the
+ * `TimeoutError` DOMException directly, others wrap it as an `AbortError` or
+ * bury it in `cause`. Walk a bounded slice of the cause chain to cover all
+ * three without risking a cycle.
+ */
+function isTimeoutAbort(error: unknown): boolean {
+	let current: unknown = error;
+	for (let depth = 0; current != null && depth < 5; depth++) {
+		if (typeof current !== "object") return false;
+		if ("name" in current) {
+			const name = current.name;
+			if (name === "TimeoutError" || name === "AbortError") return true;
+		}
+		current = "cause" in current ? current.cause : undefined;
+	}
+	return false;
 }
 
 function stringValue(value: unknown): string | undefined {
