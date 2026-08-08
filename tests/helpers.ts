@@ -72,6 +72,26 @@ export function warmupProbeResponse(requestBody: string): Response {
 }
 
 /**
+ * Answer the agent's kernel-ready ping (`GET <sandbox>/ping?wait=kernel`).
+ *
+ * `waitUntilReady` calls it once before the marker probe: 200 means the
+ * kernel started, 503 means it is still cold (retry), and 400/404/405 mean the
+ * agent predates the endpoint, so warmup falls back to the probe loop alone.
+ * Defaults to 404 because that is what every pre-#107 agent answers.
+ */
+export function pingResponse(status = 404): Response {
+	// The real agent answers plain text ("pong"), not JSON — the mock pins
+	// that so the client can never regress into parsing the ping body.
+	if (status === 200) {
+		return new Response("pong", {
+			status: 200,
+			headers: { "content-type": "text/plain; charset=utf-8" },
+		});
+	}
+	return mockResponse({ detail: "not found" }, status);
+}
+
+/**
  * Reject the way `AbortSignal.timeout` does, so `HttpClient` can map it onto
  * `RequestTimeoutError` (the TS stand-in for `httpx.TimeoutException`).
  */

@@ -10,7 +10,7 @@ import type { HttpClient } from "./http.js";
 export const MIN_BACKEND_VERSION = "0.8.0";
 
 /** Keep in sync with the `version` field in package.json. */
-const SDK_VERSION = "0.2.0";
+const SDK_VERSION = "0.3.0";
 
 /** Get the current SDK version. */
 export function getSdkVersion(): string {

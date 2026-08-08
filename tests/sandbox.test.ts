@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PoolExhaustedError, SandboxError } from "../src/common/errors.js";
 import { SandboxStatus } from "../src/sandbox/models.js";
 import { Sandbox } from "../src/sandbox/sandbox.js";
-import { apiCalls, mockResponse, versionResponse, warmupProbeResponse } from "./helpers.js";
+import {
+	apiCalls,
+	mockResponse,
+	pingResponse,
+	versionResponse,
+	warmupProbeResponse,
+} from "./helpers.js";
 
 const defaultConfig = {
 	apiUrl: "https://example.com/pkui",
@@ -636,6 +642,8 @@ describe("Sandbox", () => {
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			// refresh call
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			// kernel-ready ping: this agent has no such endpoint
+			mockFetch.mockResolvedValueOnce(pingResponse());
 			// warmup probe call
 			mockFetch.mockImplementationOnce(async (_url, init) =>
 				warmupProbeResponse((init as RequestInit).body as string),
@@ -717,6 +725,7 @@ describe("Sandbox", () => {
 				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Pending" }));
 				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Pending" }));
 				mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+				mockFetch.mockResolvedValueOnce(pingResponse());
 				mockFetch.mockImplementationOnce(async (_url, init) =>
 					warmupProbeResponse((init as RequestInit).body as string),
 				);
@@ -741,6 +750,8 @@ describe("Sandbox", () => {
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Pending" }));
 			// second refresh: Running
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			// kernel-ready ping: unsupported, so warmup probes through exec
+			mockFetch.mockResolvedValueOnce(pingResponse());
 			// first probe: empty stdout (kernel cold)
 			mockFetch.mockResolvedValueOnce(
 				mockResponse({
@@ -773,6 +784,7 @@ describe("Sandbox", () => {
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			// refresh: Running
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockResolvedValueOnce(pingResponse());
 			// single probe returning marker
 			mockFetch.mockImplementationOnce(async (_url, init) =>
 				warmupProbeResponse((init as RequestInit).body as string),
@@ -797,6 +809,7 @@ describe("Sandbox", () => {
 				mockResponse({ name: "sb-1", phase: "Running", resumedFromPool: true }, 202),
 			);
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockResolvedValueOnce(pingResponse());
 			mockFetch.mockImplementationOnce(async (_url, init) =>
 				warmupProbeResponse((init as RequestInit).body as string),
 			);
@@ -814,6 +827,7 @@ describe("Sandbox", () => {
 			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockResolvedValueOnce(pingResponse());
 			mockFetch.mockImplementationOnce(async (_url, init) =>
 				warmupProbeResponse((init as RequestInit).body as string),
 			);
@@ -832,6 +846,7 @@ describe("Sandbox", () => {
 			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockResolvedValueOnce(pingResponse());
 			mockFetch.mockImplementationOnce(async (_url, init) => {
 				const code = JSON.parse((init as RequestInit).body as string).code as string;
 				const match = code.match(/print\("(__pk_warmup_[a-f0-9]+__)"\)/);
@@ -887,6 +902,7 @@ describe("Sandbox", () => {
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			// refresh: Running
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockResolvedValueOnce(pingResponse());
 			// first warmup probe times out at Agent Gateway, second succeeds
 			mockFetch.mockResolvedValueOnce(mockResponse("upstream request timeout", 504));
 			mockFetch.mockImplementationOnce(async (_url, init) =>
@@ -907,6 +923,7 @@ describe("Sandbox", () => {
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			// refresh: Running
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockResolvedValueOnce(pingResponse());
 			// First probe call fails with a network error.
 			mockFetch.mockRejectedValueOnce(new Error("network unreachable"));
 

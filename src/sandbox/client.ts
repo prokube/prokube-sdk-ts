@@ -28,6 +28,17 @@ import {
 
 const textEncoder = new TextEncoder();
 
+/**
+ * Long-poll status GET (`?wait_phase=&timeout=`) tuning. The backend caps the
+ * hold at 30s and defaults to 20s; the SDK mirrors those numbers so it never
+ * asks for a window the backend would silently shorten. The margin is how
+ * much longer than the hold a request is allowed to take, covering the round
+ * trip of a response that only arrives when the hold expires.
+ */
+const DEFAULT_WAIT_TIMEOUT_SECONDS = 20;
+const MAX_WAIT_TIMEOUT_SECONDS = 30;
+const WAIT_REQUEST_MARGIN_SECONDS = 5;
+
 /** Options for one page of {@link SandboxClient.listPage}. */
 export interface ListPageOptions {
 	/** Page size, 1–100 (default: 25). */
@@ -224,10 +235,39 @@ export class SandboxClient {
 	 * @param requestTimeout Per-request timeout override in seconds. Callers
 	 *   polling toward a deadline should pass the remaining budget so a single
 	 *   stalled request cannot outlast their overall timeout.
+	 * @param waitPhase Phase to long-poll for (e.g. `Running`). When given, the
+	 *   backend holds the request open until the sandbox reaches that phase or
+	 *   its own wait window elapses, and answers with the current payload
+	 *   either way — a response that still reports another phase is a normal
+	 *   timeout, not an error. Backends that predate the parameter ignore it
+	 *   and answer immediately, which degrades to plain polling.
+	 * @param waitTimeout How long, in seconds, the backend may hold the request
+	 *   when `waitPhase` is set. Defaults to 20s and is clamped both to the
+	 *   server-side cap and to what `requestTimeout` can outlast.
 	 */
-	async get(name: string, requestTimeout?: number): Promise<SandboxInfo> {
+	async get(
+		name: string,
+		requestTimeout?: number,
+		waitPhase?: string,
+		waitTimeout?: number,
+	): Promise<SandboxInfo> {
+		let params: Record<string, string> | undefined;
+		if (waitPhase !== undefined) {
+			let hold = Math.floor(
+				Math.min(MAX_WAIT_TIMEOUT_SECONDS, waitTimeout ?? DEFAULT_WAIT_TIMEOUT_SECONDS),
+			);
+			if (requestTimeout !== undefined) {
+				// The server holds the connection for the whole wait window
+				// before answering, so the per-request timeout must outlast it.
+				// Leave a margin for the response trip so a long-poll that
+				// answers right at its cap still lands. Once too little budget
+				// is left to hold anything, fall back to a plain status GET.
+				hold = Math.min(hold, Math.floor(requestTimeout) - WAIT_REQUEST_MARGIN_SECONDS);
+			}
+			if (hold >= 1) params = { wait_phase: waitPhase, timeout: String(hold) };
+		}
 		try {
-			const data = (await this.http.get(this.sandboxPath(name), undefined, requestTimeout)) as
+			const data = (await this.http.get(this.sandboxPath(name), params, requestTimeout)) as
 				| Record<string, unknown>
 				| undefined;
 			return parseSandboxInfo(data ?? {}, this.workspace);
@@ -237,6 +277,31 @@ export class SandboxClient {
 			}
 			throw e;
 		}
+	}
+
+	/**
+	 * Block on the sandbox agent until its Jupyter kernel is warm.
+	 *
+	 * Calls `GET <sandbox>/ping?wait=kernel&timeout=<waitTimeout>` on the
+	 * sandbox agent (the same per-sandbox base path `exec` uses, so it is
+	 * proxied exactly like code execution). Resolving means the agent answered
+	 * 200 — the kernel has started.
+	 *
+	 * @throws NotFoundError if the agent (or the proxy in front of it) does not
+	 *   expose the endpoint — an older agent, so the caller must fall back to
+	 *   probing the kernel through `exec`.
+	 * @throws ProKubeError on any other non-2xx answer. `statusCode === 503`
+	 *   means the kernel is not warm yet and the call may be retried; 400/405
+	 *   likewise indicate an agent without this endpoint.
+	 */
+	async pingKernel(name: string, waitTimeout: number, requestTimeout?: number): Promise<void> {
+		// The agent answers plain text ("pong"), not JSON: fetch bytes so the
+		// shared error translation still runs without a JSON parse of the body.
+		await this.http.getBytes(
+			this.sandboxSubPath(name, "ping"),
+			{ wait: "kernel", timeout: String(waitTimeout) },
+			requestTimeout,
+		);
 	}
 
 	/**
