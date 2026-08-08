@@ -80,8 +80,15 @@ export function warmupProbeResponse(requestBody: string): Response {
  * Defaults to 404 because that is what every pre-#107 agent answers.
  */
 export function pingResponse(status = 404): Response {
-	const body = status === 200 ? { status: "ok" } : { detail: "not found" };
-	return mockResponse(body, status);
+	// The real agent answers plain text ("pong"), not JSON — the mock pins
+	// that so the client can never regress into parsing the ping body.
+	if (status === 200) {
+		return new Response("pong", {
+			status: 200,
+			headers: { "content-type": "text/plain; charset=utf-8" },
+		});
+	}
+	return mockResponse({ detail: "not found" }, status);
 }
 
 /**

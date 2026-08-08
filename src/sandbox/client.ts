@@ -295,7 +295,9 @@ export class SandboxClient {
 	 *   likewise indicate an agent without this endpoint.
 	 */
 	async pingKernel(name: string, waitTimeout: number, requestTimeout?: number): Promise<void> {
-		await this.http.get(
+		// The agent answers plain text ("pong"), not JSON: fetch bytes so the
+		// shared error translation still runs without a JSON parse of the body.
+		await this.http.getBytes(
 			this.sandboxSubPath(name, "ping"),
 			{ wait: "kernel", timeout: String(waitTimeout) },
 			requestTimeout,
