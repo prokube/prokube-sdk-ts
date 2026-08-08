@@ -846,6 +846,7 @@ describe("Sandbox", () => {
 			mockFetch.mockResolvedValueOnce(versionResponse());
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", status: "Running" }));
+			mockFetch.mockResolvedValueOnce(pingResponse());
 			mockFetch.mockImplementationOnce(async (_url, init) => {
 				const code = JSON.parse((init as RequestInit).body as string).code as string;
 				const match = code.match(/print\("(__pk_warmup_[a-f0-9]+__)"\)/);
