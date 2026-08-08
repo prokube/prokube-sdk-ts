@@ -3,10 +3,12 @@ import { SandboxError, SandboxTimeoutError } from "../src/common/errors.js";
 import { SandboxStatus } from "../src/sandbox/models.js";
 import { Sandbox } from "../src/sandbox/sandbox.js";
 import {
+	type FetchCall,
 	abortTimeoutError,
 	callsTo,
 	captureRequestTimeouts,
 	mockResponse,
+	pingResponse,
 	versionResponse,
 	warmupProbeResponse,
 } from "./helpers.js";
@@ -30,11 +32,27 @@ function getResponse(phase: string, extra: Record<string, unknown> = {}): Respon
 }
 
 /**
- * The sandbox lifecycle is a poll loop with a 2s interval, so every test that
+ * The pause and deletion waits poll on a 2s interval, so every test that
  * exercises more than one poll drives fake timers. Advancing exactly
  * `(polls - 1) * 2000` keeps the queued response list and the loop in step.
  */
 const POLL_INTERVAL_MS = 2000;
+
+/**
+ * Readiness waiting long-polls instead, and paces a round the backend
+ * answered instantly (an old backend ignoring `wait_phase`) by 1s.
+ */
+const DEGRADED_POLL_MS = 1000;
+
+/** Query parameters of a recorded call. */
+function queryOf(call: FetchCall): URLSearchParams {
+	return new URL(String(call[0])).searchParams;
+}
+
+/** Recorded status GETs, in order (the long-poll query is not part of the path). */
+function statusGets(mockFetch: { mock: { calls: unknown[][] } }): FetchCall[] {
+	return callsTo(mockFetch, "/sandboxes/sb-1", "GET");
+}
 
 describe("v0.8 lifecycle", () => {
 	const originalEnv = process.env;
@@ -211,6 +229,7 @@ describe("v0.8 lifecycle", () => {
 			mockFetch.mockResolvedValueOnce(mockResponse({ name: "sb-1", phase: "Resuming" }, 202));
 			mockFetch.mockResolvedValueOnce(getResponse("Resuming"));
 			mockFetch.mockResolvedValueOnce(getResponse("Running"));
+			mockFetch.mockResolvedValueOnce(pingResponse());
 			mockFetch.mockImplementationOnce(async (_url, init) =>
 				warmupProbeResponse((init as RequestInit).body as string),
 			);
@@ -218,7 +237,7 @@ describe("v0.8 lifecycle", () => {
 			const sbx = await Sandbox.fromPool("pool", defaultConfig);
 			await sbx.resume();
 			const ready = sbx.waitUntilReady(30);
-			await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+			await vi.advanceTimersByTimeAsync(DEGRADED_POLL_MS);
 			await ready;
 
 			expect(sbx.status).toBe(SandboxStatus.Running);
@@ -241,12 +260,11 @@ describe("v0.8 lifecycle", () => {
 			const assertion = expect(ready).rejects.toThrow(SandboxTimeoutError);
 			await vi.advanceTimersByTimeAsync(3000);
 			await assertion;
-
 			// Without a per-request override each poll would inherit
 			// config.timeout (300s) and could outlast the caller's 3s budget.
 			expect(budgets.length).toBeGreaterThanOrEqual(2);
 			expect(budgets[0]).toBeLessThanOrEqual(3000);
-			expect(budgets[1]).toBeLessThanOrEqual(1000);
+			expect(budgets[budgets.length - 1]).toBeLessThanOrEqual(1000);
 			for (const [index, budget] of budgets.entries()) {
 				expect(budget).toBeLessThanOrEqual(budgets[0]);
 				if (index > 0) expect(budget).toBeLessThan(budgets[index - 1]);
@@ -292,6 +310,216 @@ describe("v0.8 lifecycle", () => {
 			const ready = sbx.waitUntilReady(30);
 			await expect(ready).rejects.toBeInstanceOf(SandboxError);
 			await expect(ready).rejects.toThrow(/Deleting/);
+		});
+	});
+
+	describe("waitUntilReady long-poll", () => {
+		it("asks the backend to hold the status GET until Running", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
+			mockFetch.mockResolvedValueOnce(claimResponse("Pending"));
+			mockFetch.mockResolvedValueOnce(getResponse("Running"));
+			mockFetch.mockResolvedValueOnce(pingResponse(200));
+			mockFetch.mockImplementationOnce(async (_url, init) =>
+				warmupProbeResponse((init as RequestInit).body as string),
+			);
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			const budgets = captureRequestTimeouts();
+			await sbx.waitUntilReady(100);
+
+			const [statusGet] = statusGets(mockFetch);
+			expect(queryOf(statusGet).get("wait_phase")).toBe("Running");
+			// The backend caps its hold at 30s; the SDK never asks for a
+			// window the backend would silently shorten.
+			expect(queryOf(statusGet).get("timeout")).toBe("20");
+			// The request must outlast the server-side hold, otherwise a
+			// long-poll answering at its cap looks like a stalled request.
+			expect(budgets[0]).toBeGreaterThan(20_000);
+		});
+
+		it("clamps the hold to the remaining readiness budget", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
+			mockFetch.mockResolvedValueOnce(claimResponse("Pending"));
+			mockFetch.mockResolvedValueOnce(getResponse("Running"));
+			mockFetch.mockResolvedValueOnce(pingResponse(200));
+			mockFetch.mockImplementationOnce(async (_url, init) =>
+				warmupProbeResponse((init as RequestInit).body as string),
+			);
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			const budgets = captureRequestTimeouts();
+			await sbx.waitUntilReady(10);
+
+			const hold = Number(queryOf(statusGets(mockFetch)[0]).get("timeout"));
+			// A 10s budget leaves 5s of hold once the response margin is
+			// reserved — the hold shrinks, not just the request timeout.
+			expect(hold).toBeGreaterThanOrEqual(1);
+			expect(hold).toBeLessThanOrEqual(5);
+			expect(budgets[0]).toBeLessThanOrEqual(10_000);
+			expect(hold * 1000).toBeLessThan(budgets[0]);
+		});
+
+		it("sends a plain GET when nothing is left to hold", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
+			mockFetch.mockResolvedValueOnce(claimResponse("Pending"));
+			mockFetch.mockResolvedValueOnce(getResponse("Running"));
+			mockFetch.mockResolvedValueOnce(pingResponse(200));
+			mockFetch.mockImplementationOnce(async (_url, init) =>
+				warmupProbeResponse((init as RequestInit).body as string),
+			);
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			await sbx.waitUntilReady(3);
+
+			expect([...queryOf(statusGets(mockFetch)[0]).keys()]).toEqual([]);
+		});
+
+		it("paces an instant round that did not report the target phase", async () => {
+			vi.useFakeTimers();
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
+			mockFetch.mockResolvedValueOnce(claimResponse("Pending"));
+			mockFetch.mockResolvedValueOnce(getResponse("Pending"));
+			mockFetch.mockResolvedValueOnce(getResponse("Running"));
+			mockFetch.mockResolvedValueOnce(pingResponse(200));
+			mockFetch.mockImplementationOnce(async (_url, init) =>
+				warmupProbeResponse((init as RequestInit).body as string),
+			);
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			const ready = sbx.waitUntilReady(30);
+			let settled = false;
+			void ready.then(() => {
+				settled = true;
+			});
+
+			// An old backend ignores wait_phase and answers at once; without
+			// client-side pacing the loop would spin as fast as the network.
+			await vi.advanceTimersByTimeAsync(DEGRADED_POLL_MS - 1);
+			expect(settled).toBe(false);
+			expect(statusGets(mockFetch)).toHaveLength(1);
+
+			await vi.advanceTimersByTimeAsync(1);
+			await ready;
+			expect(statusGets(mockFetch)).toHaveLength(2);
+			expect(sbx.status).toBe(SandboxStatus.Running);
+		});
+	});
+
+	describe("kernel warmup ping", () => {
+		it("converges in one marker run when the ping reports the kernel warm", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
+			mockFetch.mockResolvedValueOnce(claimResponse("Pending"));
+			mockFetch.mockResolvedValueOnce(getResponse("Running"));
+			mockFetch.mockResolvedValueOnce(pingResponse(200));
+			mockFetch.mockImplementationOnce(async (_url, init) =>
+				warmupProbeResponse((init as RequestInit).body as string),
+			);
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			await sbx.waitUntilReady(300);
+
+			const [ping] = callsTo(mockFetch, "/sandboxes/sb-1/ping", "GET");
+			expect(queryOf(ping).get("wait")).toBe("kernel");
+			// A huge readiness budget must not park a request on the agent
+			// forever: the wait window is capped at 100s.
+			expect(queryOf(ping).get("timeout")).toBe("100");
+			// The ping already proved the kernel is warm, so the marker
+			// verification converges on its first round-trip.
+			expect(callsTo(mockFetch, "/sandboxes/sb-1/exec", "POST")).toHaveLength(1);
+		});
+
+		it("shrinks the ping wait window with the remaining budget", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
+			mockFetch.mockResolvedValueOnce(claimResponse("Pending"));
+			mockFetch.mockResolvedValueOnce(getResponse("Running"));
+			mockFetch.mockResolvedValueOnce(pingResponse(200));
+			mockFetch.mockImplementationOnce(async (_url, init) =>
+				warmupProbeResponse((init as RequestInit).body as string),
+			);
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			const budgets = captureRequestTimeouts();
+			await sbx.waitUntilReady(10);
+
+			const [ping] = callsTo(mockFetch, "/sandboxes/sb-1/ping", "GET");
+			const waitSeconds = Number(queryOf(ping).get("timeout"));
+			// The agent may never block past the caller's own deadline.
+			expect(waitSeconds).toBeGreaterThanOrEqual(1);
+			expect(waitSeconds).toBeLessThanOrEqual(5);
+			// budgets[0] is the status GET, budgets[1] the ping.
+			expect(budgets[1]).toBeLessThanOrEqual(10_000);
+		});
+
+		it.each([400, 404, 405])("falls back to the probe loop on ping %i", async (status) => {
+			vi.useFakeTimers();
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
+			mockFetch.mockResolvedValueOnce(claimResponse("Pending"));
+			mockFetch.mockResolvedValueOnce(getResponse("Running"));
+			mockFetch.mockResolvedValueOnce(pingResponse(status));
+			// Cold kernel on the first probe, warm on the retry.
+			mockFetch.mockResolvedValueOnce(
+				mockResponse({ stdout: "", stderr: "", success: true, durationMs: 1 }),
+			);
+			mockFetch.mockImplementationOnce(async (_url, init) =>
+				warmupProbeResponse((init as RequestInit).body as string),
+			);
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			const ready = sbx.waitUntilReady(60);
+			await vi.advanceTimersByTimeAsync(500);
+			await ready;
+
+			expect(callsTo(mockFetch, "/sandboxes/sb-1/ping", "GET")).toHaveLength(1);
+			// An agent without the endpoint keeps the retrying marker probe.
+			expect(callsTo(mockFetch, "/sandboxes/sb-1/exec", "POST")).toHaveLength(2);
+		});
+
+		it("retries a 503 ping inside the deadline", async () => {
+			vi.useFakeTimers();
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
+			mockFetch.mockResolvedValueOnce(claimResponse("Pending"));
+			mockFetch.mockResolvedValueOnce(getResponse("Running"));
+			mockFetch.mockResolvedValueOnce(pingResponse(503));
+			mockFetch.mockResolvedValueOnce(pingResponse(200));
+			mockFetch.mockImplementationOnce(async (_url, init) =>
+				warmupProbeResponse((init as RequestInit).body as string),
+			);
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			const ready = sbx.waitUntilReady(60);
+			// 503 means "still cold": the instant answer is paced, then retried.
+			await vi.advanceTimersByTimeAsync(500);
+			await ready;
+
+			expect(callsTo(mockFetch, "/sandboxes/sb-1/ping", "GET")).toHaveLength(2);
+			expect(callsTo(mockFetch, "/sandboxes/sb-1/exec", "POST")).toHaveLength(1);
+		});
+
+		it("warns and returns when the budget expires before the kernel is warm", async () => {
+			vi.useFakeTimers();
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(versionResponse());
+			mockFetch.mockResolvedValueOnce(claimResponse("Pending"));
+			mockFetch.mockResolvedValueOnce(getResponse("Running"));
+			mockFetch.mockImplementation(async () => pingResponse(503));
+
+			const sbx = await Sandbox.fromPool("pool", defaultConfig);
+			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const ready = sbx.waitUntilReady(2);
+			await vi.advanceTimersByTimeAsync(2000);
+
+			// Warmup never throws: the sandbox is up, only its kernel is unproven.
+			await expect(ready).resolves.toBeUndefined();
+			expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/did not observe marker/));
+			expect(callsTo(mockFetch, "/sandboxes/sb-1/exec", "POST")).toHaveLength(0);
 		});
 	});
 

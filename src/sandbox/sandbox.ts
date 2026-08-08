@@ -22,10 +22,43 @@ import {
 } from "./models.js";
 
 /**
- * Interval between lifecycle polls. Every wait in this class (readiness,
- * pause, deletion) reuses it so their pacing cannot drift apart.
+ * Interval between lifecycle polls. The pause and deletion waits reuse it so
+ * their pacing cannot drift apart. Readiness waiting long-polls instead and
+ * uses the constants below.
  */
 const POLL_INTERVAL_MS = 2000;
+
+/**
+ * Readiness waiting (see {@link Sandbox.waitUntilReady}). Each round asks the
+ * backend to hold the status GET for `LONG_POLL_WAIT_SECONDS`, allowing the
+ * request itself `LONG_POLL_MARGIN_SECONDS` more so a hold that expires still
+ * answers in time. A round that returns faster than `IMMEDIATE_RESPONSE_MS`
+ * did not block server-side, so the next one is paced by `DEGRADED_POLL_MS`.
+ */
+const LONG_POLL_WAIT_SECONDS = 20;
+const LONG_POLL_MARGIN_SECONDS = 5;
+const IMMEDIATE_RESPONSE_MS = 500;
+const DEGRADED_POLL_MS = 1000;
+
+/**
+ * Kernel warmup (see {@link Sandbox.warmupKernel}). The agent's blocking ping
+ * is bounded by `KERNEL_PING_MAX_SECONDS` per attempt; the marker probe runs
+ * with a `PROBE_MAX_TIMEOUT_SEC` budget and `PROBE_RETRY_MS` between attempts.
+ */
+const KERNEL_PING_MAX_SECONDS = 100;
+const PROBE_MAX_TIMEOUT_SEC = 5;
+const PROBE_RETRY_MS = 500;
+/**
+ * runCode and the agent ping both take an integer second budget, so a
+ * sub-second remainder cannot be expressed without overrunning the deadline.
+ */
+const MIN_PROBE_BUDGET_MS = 1000;
+
+/**
+ * Result of one kernel-ready ping attempt: the kernel is up, the agent has no
+ * such endpoint (fall back to marker probing), or the budget ran out first.
+ */
+type KernelPingOutcome = "warm" | "unsupported" | "expired";
 
 export interface SandboxOptions extends ConfigOptions {
 	volumeSize?: string;
@@ -485,8 +518,17 @@ export class Sandbox {
 	/**
 	 * Block until the sandbox phase is `Running`. Useful after `resume()`.
 	 *
-	 * Transitional phases (`Pending`, `Pausing`, `Resuming`) simply keep
-	 * polling.
+	 * Each round long-polls the status endpoint: the backend holds the GET
+	 * open until the sandbox reaches `Running` (or its own wait window
+	 * elapses) and answers with the current payload either way, so a
+	 * transition is observed within milliseconds instead of on the next fixed
+	 * poll tick. Transitional phases (`Pending`, `Pausing`, `Resuming`) simply
+	 * start another round.
+	 *
+	 * Backends that predate the `wait_phase` parameter ignore it and answer
+	 * immediately; those rounds are paced with a short client-side sleep so
+	 * the loop degrades into the plain polling it replaced instead of
+	 * hammering the API.
 	 *
 	 * @param timeout Maximum seconds to wait. Defaults to the configured
 	 *   request timeout.
@@ -502,20 +544,29 @@ export class Sandbox {
 		const deadline = Date.now() + effectiveTimeout * 1000;
 
 		while (true) {
-			let remainingMs = deadline - Date.now();
+			const roundStarted = Date.now();
+			let remainingMs = deadline - roundStarted;
 			if (remainingMs <= 0) break;
+			// Ask the backend to hold the request for at most the remaining
+			// budget, and cap the GET itself at the remaining budget too so a
+			// single stalled round cannot block past the caller's deadline:
+			// without this the request falls back to the client's default
+			// timeout (PROKUBE_TIMEOUT, 300s), which can vastly exceed a short
+			// waitUntilReady(timeout) call. The GET is allowed a margin over
+			// the hold so a response that only arrives when the hold expires
+			// is not mistaken for a stall.
+			const waitTimeoutSec = Math.min(LONG_POLL_WAIT_SECONDS, remainingMs / 1000);
 			try {
-				// Cap the GET at the remaining budget so a single stalled poll
-				// cannot block past the caller's deadline: without this the
-				// request falls back to the client's default timeout
-				// (PROKUBE_TIMEOUT, 300s), which can vastly exceed a short
-				// waitUntilReady(timeout) call.
-				await this.refresh(remainingMs / 1000);
+				await this.refresh(
+					Math.min(waitTimeoutSec + LONG_POLL_MARGIN_SECONDS, remainingMs / 1000),
+					SandboxStatus.Running,
+					waitTimeoutSec,
+				);
 			} catch (e) {
 				if (!(e instanceof RequestTimeoutError)) throw e;
 				remainingMs = deadline - Date.now();
 				if (remainingMs <= 0) break;
-				await sleep(Math.min(POLL_INTERVAL_MS, remainingMs));
+				await sleep(Math.min(DEGRADED_POLL_MS, remainingMs));
 				continue;
 			}
 
@@ -535,9 +586,16 @@ export class Sandbox {
 				);
 			}
 
-			remainingMs = deadline - Date.now();
+			const roundEnded = Date.now();
+			remainingMs = deadline - roundEnded;
 			if (remainingMs <= 0) break;
-			await sleep(Math.min(POLL_INTERVAL_MS, remainingMs));
+			if (roundEnded - roundStarted < IMMEDIATE_RESPONSE_MS) {
+				// The answer came back instantly without the target phase, so
+				// the backend did not hold the request — either it ignores
+				// wait_phase (older backend) or it reported an intermediate
+				// transition. Pace the next round instead of spinning.
+				await sleep(Math.min(DEGRADED_POLL_MS, remainingMs));
+			}
 		}
 
 		throw new SandboxTimeoutError(
@@ -546,50 +604,123 @@ export class Sandbox {
 	}
 
 	/**
-	 * Warm up the sandbox interpreter by running a marker print until the
-	 * marker appears in stdout. The first execution after pod start can race
-	 * a cold interpreter and return `success=true` with empty stdout; without
-	 * this probe, the first user `runCode` call after `waitUntilReady` would
-	 * absorb that race. (Whether the current sandbox agent still exhibits it
-	 * is unverified; the probe is kept as cheap insurance until warmup is
-	 * re-measured against it.)
+	 * Wait until the sandbox's code-execution pipeline is live.
 	 *
-	 * The check is containment, not equality: the interpreter may append
-	 * unrelated text (e.g. warnings) alongside the marker, and extra output
-	 * does not make the session any less live.
+	 * The first execution after pod start can race a cold interpreter and
+	 * return `success=true` with empty stdout; without warmup, the first user
+	 * `runCode` call after `waitUntilReady` would absorb that race. (Whether
+	 * the current sandbox agent still exhibits it is unverified; the probe is
+	 * kept as cheap insurance until warmup is re-measured against it.)
+	 *
+	 * The agent closes that window itself: `GET <sandbox>/ping?wait=kernel`
+	 * blocks until the kernel has started (200) or the wait window elapses
+	 * (503). One blocking call therefore replaces the poll loop. Because the
+	 * ping only proves the *kernel* started — not that the exec/SSE pipeline
+	 * in front of it delivers output — a `print(<marker>)` round-trip still
+	 * follows it as end-to-end proof, run by {@link probeKernelLoop}: a warm
+	 * kernel normally echoes the marker on the first try, but a transient
+	 * gateway 504 or a swallowed first stdout must be retried inside the
+	 * remaining budget instead of handing the user a sandbox whose next
+	 * `runCode` resets the just-prewarmed session. The marker check is
+	 * containment, not equality: the interpreter may append unrelated text
+	 * (e.g. warnings) alongside the marker, and extra output does not make
+	 * the session any less live.
+	 *
+	 * Agents without the endpoint answer 404/400/405; those fall back to the
+	 * very same loop, which is all warmup was before the ping existed.
 	 *
 	 * Bounded by `deadline`. Never throws on deadline exceeded — logs a
-	 * warning and returns. Transient gateway timeouts during warmup are retried;
-	 * other errors from `runCode` still propagate.
+	 * warning and returns. Other errors from `runCode` still propagate.
 	 */
 	private async warmupKernel(deadline: number): Promise<void> {
 		this.checkUsable();
+		const outcome = await this.pingKernel(deadline);
+		if (outcome === "expired") {
+			this.warnWarmupIncomplete(0);
+			return;
+		}
+		await this.probeKernelLoop(deadline);
+	}
+
+	/**
+	 * Block on the agent's kernel-ready ping until it reports warm.
+	 *
+	 * Resolves to `"warm"` once the agent answers 200, `"unsupported"` if it
+	 * has no such endpoint (so the caller must probe through `exec`), or
+	 * `"expired"` when the deadline runs out while the kernel is still cold.
+	 */
+	private async pingKernel(deadline: number): Promise<KernelPingOutcome> {
+		while (true) {
+			const remainingMs = deadline - Date.now();
+			// The agent takes an integer second wait window, so a sub-second
+			// budget cannot be expressed; give up rather than round up and
+			// overrun waitUntilReady's deadline.
+			if (remainingMs < MIN_PROBE_BUDGET_MS) return "expired";
+			// Keep the agent's own wait window inside the remaining budget,
+			// leaving room for the response trip, and below the ceiling the
+			// gateway in front of the agent tolerates.
+			const waitSeconds = Math.floor(
+				Math.min(
+					KERNEL_PING_MAX_SECONDS,
+					Math.max(1, remainingMs / 1000 - LONG_POLL_MARGIN_SECONDS),
+				),
+			);
+			const started = Date.now();
+			try {
+				await this._client.pingKernel(this._name, waitSeconds, remainingMs / 1000);
+			} catch (error) {
+				// A stalled ping is indistinguishable from a proxy that never
+				// forwards it; the marker probe is the reliable path.
+				if (error instanceof RequestTimeoutError) return "unsupported";
+				if (error instanceof NotFoundError) return "unsupported";
+				if (!(error instanceof ProKubeError)) throw error;
+				if (error.statusCode === 400 || error.statusCode === 405) return "unsupported";
+				if (error.statusCode !== 503 && error.statusCode !== 504) throw error;
+				// 503: kernel still cold after the agent's wait window.
+				// 504: the gateway cut the blocking request. Both are
+				// transient — keep waiting inside our own deadline, pacing a
+				// ping that answered instantly so a non-blocking agent cannot
+				// spin the loop.
+				if (Date.now() - started < IMMEDIATE_RESPONSE_MS) {
+					await sleep(Math.min(PROBE_RETRY_MS, Math.max(0, deadline - Date.now())));
+				}
+				continue;
+			}
+			return "warm";
+		}
+	}
+
+	/**
+	 * Probe the Jupyter kernel until it echoes a unique marker back.
+	 *
+	 * Used both as the end-to-end proof after a warm kernel-ready ping and as
+	 * the whole warmup for agents without that endpoint. The marker is
+	 * per-call to avoid collisions with user code, and a probe that returns
+	 * without it discards the session before retrying — otherwise a
+	 * cold/stale Jupyter session can be reused forever and every probe keeps
+	 * returning empty stdout.
+	 */
+	private async probeKernelLoop(deadline: number): Promise<void> {
 		const marker = `__pk_warmup_${randomUUID().replace(/-/g, "")}__`;
 		const probeCode = `print("${marker}")`;
-		const probeIntervalMs = 500;
-		// runCode expects a positive integer second timeout. We can't probe
-		// with a sub-second budget without potentially overrunning the
-		// deadline, so once less than 1s remains we give up rather than
-		// rounding up.
-		const minProbeBudgetMs = 1000;
-		// Cap the per-probe backend timeout so a single warmup attempt
-		// cannot consume the entire waitUntilReady budget. Without this
-		// cap, the first probe call against an unresponsive kernel could
-		// block the SDK for the user's full timeout (potentially minutes)
-		// and starve the intended 500ms retry loop.
-		const maxProbeTimeoutSec = 5;
+		let attempts = 0;
 
 		while (true) {
 			const remainingMs = deadline - Date.now();
-			if (remainingMs < minProbeBudgetMs) break;
+			// runCode expects a positive integer second timeout. We can't
+			// probe with a sub-second budget without potentially overrunning
+			// the deadline, so once less than 1s remains we give up rather
+			// than rounding up.
+			if (remainingMs < MIN_PROBE_BUDGET_MS) break;
+			attempts += 1;
 
 			// `probeTimeoutSec` caps the BACKEND execution time of the probe
-			// (passed through to /exec). The client-side fetch is bounded
-			// separately by the HTTP client's configured timeout, so a stalled
-			// connection can still let one probe outlive this deadline — that
-			// bound is config.timeout, not infinity. floor() at least
-			// guarantees probeTimeoutSec * 1000 <= remainingMs.
-			const probeTimeoutSec = Math.min(maxProbeTimeoutSec, Math.floor(remainingMs / 1000));
+			// (passed through to /exec), keeping retries frequent against a
+			// stuck kernel. Without this cap the first probe call could block
+			// the SDK for the user's full timeout (potentially minutes) and
+			// starve the retry loop. floor() at least guarantees
+			// probeTimeoutSec * 1000 <= remainingMs.
+			const probeTimeoutSec = Math.min(PROBE_MAX_TIMEOUT_SEC, Math.floor(remainingMs / 1000));
 			let result: CodeResult;
 			try {
 				result = await this.runCode(probeCode, "python", probeTimeoutSec);
@@ -600,7 +731,7 @@ export class Sandbox {
 				this._code.markSessionInvalid();
 				const postErrorRemainingMs = deadline - Date.now();
 				if (postErrorRemainingMs <= 0) break;
-				await sleep(Math.min(probeIntervalMs, postErrorRemainingMs));
+				await sleep(Math.min(PROBE_RETRY_MS, postErrorRemainingMs));
 				continue;
 			}
 			if (result.stdout.includes(marker)) return;
@@ -608,11 +739,16 @@ export class Sandbox {
 
 			const postProbeRemainingMs = deadline - Date.now();
 			if (postProbeRemainingMs <= 0) break;
-			await sleep(Math.min(probeIntervalMs, postProbeRemainingMs));
+			await sleep(Math.min(PROBE_RETRY_MS, postProbeRemainingMs));
 		}
 
+		this.warnWarmupIncomplete(attempts);
+	}
+
+	/** Log that warmup did not confirm a live kernel; never throws. */
+	private warnWarmupIncomplete(attempts: number): void {
 		console.warn(
-			`Sandbox '${this._name}': kernel warmup probe did not observe marker within deadline; proceeding anyway`,
+			`Sandbox '${this._name}': kernel warmup probe did not observe marker within deadline after ${attempts} attempt(s); proceeding anyway`,
 		);
 	}
 
@@ -705,10 +841,13 @@ export class Sandbox {
 	 *
 	 * @param requestTimeout Per-request timeout override in seconds. Callers
 	 *   polling toward a deadline should pass the remaining budget.
+	 * @param waitPhase Phase to long-poll for. See {@link SandboxClient.get}.
+	 * @param waitTimeout How long the backend may hold the request when
+	 *   `waitPhase` is set. See {@link SandboxClient.get}.
 	 */
-	async refresh(requestTimeout?: number): Promise<void> {
+	async refresh(requestTimeout?: number, waitPhase?: string, waitTimeout?: number): Promise<void> {
 		this.checkUsable();
-		const info = await this._client.get(this._name, requestTimeout);
+		const info = await this._client.get(this._name, requestTimeout, waitPhase, waitTimeout);
 		this._status = info.status;
 		this._lastError = info.lastError;
 		if (info.image) this._image = info.image;

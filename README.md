@@ -20,8 +20,8 @@ default, so installing from source can leave `dist/` missing unless the package
 is explicitly trusted.
 
 ```bash
-# Replace v0.2.0 with the desired release tag
-bun add https://github.com/prokube/prokube-sdk-ts/releases/download/v0.2.0/prokube-v0.2.0.tgz
+# Replace v0.3.0 with the desired release tag
+bun add https://github.com/prokube/prokube-sdk-ts/releases/download/v0.3.0/prokube-v0.3.0.tgz
 ```
 
 Each GitHub release publishes a packed `.tgz` built from the SDK's `dist/`
@@ -35,7 +35,7 @@ versions such as `2026.7.5` with release tags like `v2026-07-05`. Release tags
 are now `v` + the `package.json` version (for example `v0.2.0`), and release
 assets are named accordingly (`prokube-v0.2.0.tgz`).
 
-`0.2.0` requires a pk-sandbox backend of **0.8.0 or newer**. The SDK checks the
+`0.3.0` requires a pk-sandbox backend of **0.8.0 or newer**. The SDK checks the
 backend version on first use and emits a `console.warn` when the backend is
 older than the minimum; the check is skipped for API-key (external) access
 because external endpoints do not expose `/api/version`.
